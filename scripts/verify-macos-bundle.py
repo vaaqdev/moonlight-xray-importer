@@ -27,9 +27,35 @@ for filename, architecture in (('xray', 'arm64'), ('xray-x86_64', 'x86_64')):
     assert architecture in subprocess.check_output(['lipo', '-archs', str(resources / filename)], text=True)
 assert not list(app.rglob('profile.json'))
 subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
-version = subprocess.run([str(main), '--version'], capture_output=True, text=True, timeout=30)
+environment = dict(os.environ)
+for variable in ('QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_PATH', 'QML_IMPORT_PATH',
+                 'QTDIR', 'QT_ROOT_DIR', 'DYLD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH'):
+    environment.pop(variable, None)
+version = subprocess.run([str(main), '--version'], capture_output=True, text=True, timeout=30, env=environment)
 assert version.returncode == 0 and '6.2.0' in version.stdout + version.stderr, version
 print('PASS: signed universal app launches from its deployed bundle; no bundled profile')
+mach_magic = {b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf'}
+binaries = []
+for path in app.rglob('*'):
+    if not path.is_file() or path.is_symlink(): continue
+    with path.open('rb') as stream:
+        if stream.read(4) in mach_magic: binaries.append(path)
+for binary in binaries:
+    output = subprocess.check_output(['otool', '-L', str(binary)], text=True)
+    for line in output.splitlines():
+        if not line.startswith('\t'): continue
+        dependency = line.strip().split(' (', 1)[0]
+        if dependency.startswith(('/System/', '/usr/lib/')): continue
+        if dependency.startswith('@rpath/'):
+            resolved = app / 'Contents/Frameworks' / dependency[len('@rpath/'):]
+        elif dependency.startswith('@loader_path/'):
+            resolved = binary.parent / dependency[len('@loader_path/'):]
+        elif dependency.startswith('@executable_path/'):
+            resolved = main.parent / dependency[len('@executable_path/'):]
+        else:
+            raise AssertionError(f'External dependency: {binary}: {dependency}')
+        assert resolved.exists(), f'Missing bundled dependency: {binary}: {dependency}'
+print(f'PASS: {len(binaries)} Mach-O files audited; all non-system dependencies bundled')
 core = resources / ('xray' if platform.machine() == 'arm64' else 'xray-x86_64')
 with tempfile.TemporaryDirectory(prefix='moonlight-macos-test-') as temp:
     config = Path(temp) / 'test.json'

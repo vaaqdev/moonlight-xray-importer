@@ -66,6 +66,10 @@ if [ "$BUILD_CONFIG" == "Debug" ]; then EXTRA_ARGS="$EXTRA_ARGS -use-debug-libs"
 echo Extra deployment arguments: $EXTRA_ARGS
 macdeployqt $BUILD_FOLDER/app/Moonlight.app $EXTRA_ARGS -qmldir=$SOURCE_ROOT/app/gui -appstore-compliant || fail "macdeployqt failed!"
 
+# Moonlight does not use QtSql. Some optional SQL plugins reference database
+# client libraries absent from end-user machines, so exclude those plugins.
+rm -rf "$BUILD_FOLDER/app/Moonlight.app/Contents/PlugIns/sqldrivers"
+
 echo Removing dSYM files from app bundle
 find $BUILD_FOLDER/app/Moonlight.app/ -name '*.dSYM' | xargs rm -rf
 
