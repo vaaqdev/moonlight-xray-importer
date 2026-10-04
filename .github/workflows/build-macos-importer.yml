@@ -33,6 +33,16 @@ jobs:
           python3 scripts/test-tunnel-sockets.py "$PWD/build/tunnel-sockets-tests"
       - name: Verify app and tunnel bundle
         run: python3 scripts/verify-macos-bundle.py build/build-Release/app/Moonlight.app
+      - name: Test native Qt profile importer and tunnel manager
+        run: |
+          set -e
+          mkdir -p build/tunnel-manager
+          cd build/tunnel-manager
+          qmake ../../scripts/test-integrated-tunnel.pro CONFIG+=release
+          make -j$(sysctl -n hw.logicalcpu)
+          cp -R ../build-Release/app/Moonlight.app/Contents/Resources/Xray ./Xray
+          ./tunnel-manager-tests --import-tests
+          ./tunnel-manager-tests --local-lifecycle-tests
       - uses: actions/upload-artifact@v6
         with:
           name: Moonlight-6.2.0-macOS-Importer-universal

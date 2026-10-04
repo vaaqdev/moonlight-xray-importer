@@ -8,10 +8,11 @@
 #include <QFile>
 #include <QTemporaryDir>
 #include <QScopeGuard>
+#include <QStandardPaths>
 
 static int testProfileImport()
 {
-    const QString installed = QCoreApplication::applicationDirPath() + "/Xray/profile.json";
+    const QString installed = IntegratedTunnel::profilePath();
     QFile previous(installed);
     const bool existed = previous.exists();
     QByteArray original;
@@ -73,7 +74,35 @@ extern "C" void LiSetSocks5Proxy(bool enabled, const char* host, uint16_t port,
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+#ifdef Q_OS_DARWIN
+    QCoreApplication::setApplicationName("MoonlightImporterCITests");
+    QStandardPaths::setTestModeEnabled(true);
+#endif
     if (app.arguments().contains("--import-tests")) return testProfileImport();
+    if (app.arguments().contains("--local-lifecycle-tests")) {
+        QTemporaryDir directory;
+        QFile file(directory.path() + "/local profile.json");
+        if (!file.open(QIODevice::WriteOnly)) return 10;
+        file.write("{\"outbounds\":[{\"protocol\":\"freedom\"}]}");
+        file.close();
+        QString error;
+        if (!IntegratedTunnel::importProfile(QUrl::fromLocalFile(file.fileName()), &error)) {
+            qCritical().noquote() << error;
+            return 11;
+        }
+        auto cleanup = qScopeGuard([] { QFile::remove(IntegratedTunnel::profilePath()); });
+        {
+            IntegratedTunnel tunnel;
+            if (!tunnel.start(&error)) { qCritical().noquote() << error; return 12; }
+            if (!IntegratedTunnel::active()) return 13;
+            IntegratedTunnel::configureStreaming();
+            if (!configured) return 14;
+            tunnel.stop();
+            if (IntegratedTunnel::active()) return 15;
+        }
+        qInfo() << "PASS: native Qt importer, authenticated tunnel startup, streaming configuration and shutdown";
+        return 0;
+    }
     if (IntegratedTunnel::active()) return 1;
     {
         IntegratedTunnel tunnel;

@@ -96,7 +96,10 @@ for data_file in geoip.dat geosite.dat; do
   if [ -f "$XRAY_CACHE/$data_file" ]; then cp "$XRAY_CACHE/$data_file" "$XRAY_RESOURCES/$data_file"; fi
 done
 chmod +x "$XRAY_RESOURCES/xray" "$XRAY_RESOURCES/xray-x86_64" || fail "chmod Xray failed!"
-cc -O2 -Wall -Werror -arch x86_64 -arch arm64 -o "$XRAY_RESOURCES/xray-launcher" "$SOURCE_ROOT/scripts/xray-launcher.c" || fail "xray-launcher build failed!"
+# Match Moonlight's deployment target rather than requiring the CI runner's OS.
+LAUNCHER_MIN_OS=$(xcrun vtool -show-build "$BUILD_FOLDER/app/Moonlight.app/Contents/MacOS/Moonlight" | awk '/minos/ {print $2; exit}')
+[ -n "$LAUNCHER_MIN_OS" ] || fail "Cannot determine macOS deployment target!"
+cc -O2 -Wall -Werror -mmacosx-version-min="$LAUNCHER_MIN_OS" -arch x86_64 -arch arm64 -o "$XRAY_RESOURCES/xray-launcher" "$SOURCE_ROOT/scripts/xray-launcher.c" || fail "xray-launcher build failed!"
 echo Xray tunnel core bundled
 cp "$XRAY_CACHE/LICENSE" "$XRAY_RESOURCES/LICENSE" || fail "Xray license copy failed!"
 cp "$SOURCE_ROOT/LICENSE" "$BUILD_FOLDER/app/Moonlight.app/Contents/Resources/LICENSE-Moonlight.txt" || fail "Moonlight license copy failed!"

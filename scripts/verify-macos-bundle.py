@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -16,6 +17,12 @@ launcher = resources / 'xray-launcher'
 for binary in (main, launcher):
     architectures = subprocess.check_output(['lipo', '-archs', str(binary)], text=True)
     assert 'arm64' in architectures and 'x86_64' in architectures, architectures
+def minimum_os(binary):
+    output = subprocess.check_output(['xcrun', 'vtool', '-show-build', str(binary)], text=True)
+    return [tuple(map(int, version.split('.'))) for version in re.findall(r'minos\s+(\S+)', output)]
+main_min, launcher_min = minimum_os(main), minimum_os(launcher)
+assert main_min and launcher_min and max(launcher_min) <= max(main_min), (main_min, launcher_min)
+print('PASS: launcher minimum macOS matches the app:', main_min)
 for filename, architecture in (('xray', 'arm64'), ('xray-x86_64', 'x86_64')):
     assert architecture in subprocess.check_output(['lipo', '-archs', str(resources / filename)], text=True)
 assert not list(app.rglob('profile.json'))
