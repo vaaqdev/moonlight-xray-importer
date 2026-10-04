@@ -47,6 +47,9 @@ def main():
         crt = crt / 'Microsoft.VC143.CRT'
     ucrt = args.ucrt_dir or choose(pfx86 + r'\Windows Kits\10\Redist\*\ucrt\DLLs\x64')
     shutil.copy2(args.build_exe, root / 'Moonlight.exe')
+    source_root = Path(__file__).resolve().parent.parent
+    if (source_root / 'LICENSE').is_file():
+        shutil.copy2(source_root / 'LICENSE', root / 'LICENSE-Moonlight.txt')
     for directory in (crt, crt.parent / 'Microsoft.VC143.OpenMP', crt.parent / 'Microsoft.VC143.CXXAMP', ucrt):
         for dll in directory.glob('*.dll'):
             shutil.copy2(dll, root / dll.name)

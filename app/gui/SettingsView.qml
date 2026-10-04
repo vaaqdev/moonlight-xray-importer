@@ -1,5 +1,5 @@
 import QtQuick 2.9
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.5
 import QtQuick.Layouts 1.2
 import QtQuick.Window 2.2
 import QtQuick.Dialogs as NativeDialogs
@@ -22,15 +22,58 @@ Flickable {
         nameFilters: [qsTr("JSON profiles (*.json)"), qsTr("All files (*)")]
         onAccepted: {
             var error = StreamingPreferences.importTunnelProfile(selectedFile)
-            tunnelImportMessage.title = error ? qsTr("Profile import failed") : qsTr("Profile imported")
-            tunnelImportMessage.text = error || qsTr("The profile was validated and saved. The integrated tunnel is enabled. Restart Moonlight to use it.")
-            tunnelImportMessage.open()
+            if (error) {
+                tunnelImportMessage.title = qsTr("Profile import failed")
+                tunnelImportMessage.text = error
+                tunnelImportMessage.open()
+            } else {
+                // The native file chooser has just closed. Queue opening our
+                // overlay dialog so it is visible on the first import too.
+                Qt.callLater(function() { tunnelRestartDialog.open() })
+            }
         }
     }
 
     NavigableMessageDialog {
         id: tunnelImportMessage
+        parent: Overlay.overlay
         standardButtons: Dialog.Ok
+    }
+
+    NavigableDialog {
+        id: tunnelRestartDialog
+        objectName: "tunnelRestartDialog"
+        parent: Overlay.overlay
+        title: qsTr("Profile imported - restart required")
+        width: Math.min(460, Overlay.overlay.width - 40)
+        closePolicy: Popup.NoAutoClose
+
+        contentItem: Label {
+            text: qsTr("Your JSON profile was validated and saved. You must restart Moonlight to activate it. Restart now?")
+            wrapMode: Text.Wrap
+        }
+
+        footer: DialogButtonBox {
+            Button {
+                objectName: "restartMoonlightNowButton"
+                text: qsTr("Restart now")
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                onClicked: {
+                    var error = StreamingPreferences.restartApplication()
+                    if (error) {
+                        tunnelRestartDialog.close()
+                        tunnelImportMessage.title = qsTr("Restart failed")
+                        tunnelImportMessage.text = error
+                        tunnelImportMessage.open()
+                    }
+                }
+            }
+            Button {
+                text: qsTr("Later")
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                onClicked: tunnelRestartDialog.close()
+            }
+        }
     }
 
     boundsBehavior: Flickable.OvershootBounds
@@ -1061,6 +1104,22 @@ Flickable {
                     width: parent.width
                     text: qsTr("Import JSON profile...")
                     onClicked: tunnelProfileDialog.open()
+                }
+
+                Label {
+                    width: parent.width
+                    visible: StreamingPreferences.tunnelRestartNeeded
+                    wrapMode: Text.Wrap
+                    text: qsTr("Restart required: the imported profile is not active until Moonlight restarts.")
+                    color: "orange"
+                }
+
+                Button {
+                    objectName: "restartMoonlightButton"
+                    width: parent.width
+                    visible: StreamingPreferences.tunnelRestartNeeded
+                    text: qsTr("Restart Moonlight")
+                    onClicked: tunnelRestartDialog.open()
                 }
 
                 Label {

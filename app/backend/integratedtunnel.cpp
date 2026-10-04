@@ -88,6 +88,11 @@ IntegratedTunnel::IntegratedTunnel(QObject* parent) : QObject(parent)
 
 IntegratedTunnel::~IntegratedTunnel()
 {
+    stop();
+}
+
+void IntegratedTunnel::stop()
+{
     m_Stopping = true;
     if (m_Process.state() != QProcess::NotRunning) {
         m_Process.terminate();
@@ -97,7 +102,10 @@ IntegratedTunnel::~IntegratedTunnel()
         }
     }
 #ifdef Q_OS_WIN
-    if (m_Job) CloseHandle(static_cast<HANDLE>(m_Job));
+    if (m_Job) {
+        CloseHandle(static_cast<HANDLE>(m_Job));
+        m_Job = nullptr;
+    }
 #endif
     tunnelPort = 0;
     tunnelUser.clear();

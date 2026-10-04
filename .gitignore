@@ -5,6 +5,8 @@
 .vscode/
 build/
 libs/
+__pycache__/
+*.pyc
 config.tests/*/.qmake.stash
 config.tests/*/Makefile
 

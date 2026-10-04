@@ -766,7 +766,7 @@ int main(int argc, char *argv[])
     // NB: We do not force SDL_VIDEO_WAYLAND_MODE_SCALING to "stretch" on KDE,
     // because SDL 3.6 has a workaround for KDE and switches the default to
     // "aspect" for all desktops.
-    if (qgetenv("XDG_CURRENT_DESKTOP") != "KDE") {
+    if (!qgetenv("XDG_CURRENT_DESKTOP").contains("KDE")) {
         SDL_SetHint("SDL_VIDEO_WAYLAND_MODE_SCALING", "aspect");
     }
 
@@ -1112,5 +1112,15 @@ int main(int argc, char *argv[])
     fflush(stdout);
 #endif
 
+    if (err == StreamingPreferences::RestartExitCode) {
+        // Stop the old tunnel and finish logging before starting the new app.
+        // The replacement process reads the saved profile and settings normally.
+        integratedTunnel.stop();
+        if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), QStringList(), QDir::currentPath())) {
+            qCritical() << "Cannot relaunch Moonlight. Open the executable manually.";
+            return 1;
+        }
+        return 0;
+    }
     return err;
 }

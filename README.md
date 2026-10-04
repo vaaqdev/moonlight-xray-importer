@@ -1,3 +1,36 @@
+# Moonlight Xray Importer
+
+Private development copy of [Moonlight Qt](https://github.com/moonlight-stream/moonlight-qt), currently based on **6.2.0**. The original licenses and author notices are retained.
+
+This version adds a managed Xray process, JSON profile import and SOCKS5 TCP/UDP transport. A successful import explicitly requires a restart and offers **Restart now** or **Later**; Settings retains a restart action while the imported profile is pending.
+
+The Windows x64 Importer portable bundles MSVC, Universal CRT and standalone ICU 72.1. No server profile, credentials or personal settings are distributed. Windows 10/11 and suitable graphics drivers are required. macOS adaptations are present but have not been compiled or tested on macOS yet.
+
+The GitHub development copy includes the modified submodule sources as ordinary files. `source-snapshot.json` records their revisions, including the modified Moonlight streaming and ENet sources.
+
+### Windows packaging
+
+Build with Qt 6 and Visual Studio 2022 Build Tools after downloading native dependencies with `setup-deps.ps1`. Use a build path without spaces. Deploy Qt/QML with `windeployqt --release --qmldir app/gui`, copy the x64 DLLs from `libs/windows/lib/x64`, the built `AntiHooking.dll`, and Xray's Windows x64 binary to `Xray/xray.exe`. Include an empty `portable.dat`.
+
+Finish the deployed folder from a Visual Studio developer prompt:
+
+```powershell
+python scripts/package-importer-windows.py --portable-dir <deployed-folder> --build-exe <built-Moonlight.exe> --output <Importer.zip>
+```
+
+The script supplies the app-local MSVC/UCRT DLLs, downloads the pinned Microsoft ICU runtime, builds its compatibility DLL, checks imports and forwarded ICU exports, and excludes profiles, settings and logs from the ZIP. `--crt-dir` and `--ucrt-dir` allow explicit redistributable paths.
+
+Verify the actual first-import/relaunch UI with:
+
+```powershell
+python scripts/test-profile-restart.py <Importer.zip>
+python scripts/test-profile-restart.py <Importer.zip> --direct
+```
+
+The original upstream project information follows below; its download links refer to the original Moonlight builds.
+
+---
+
 # Moonlight PC
 
 [Moonlight PC](https://moonlight-stream.org) is an open source PC client for NVIDIA GameStream and [Sunshine](https://github.com/LizardByte/Sunshine).

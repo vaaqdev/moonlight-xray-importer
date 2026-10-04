@@ -131,8 +131,8 @@ void StreamingPreferences::reload()
     }
 #endif
 
-    width = settings.value(SER_WIDTH, 1280).toInt();
-    height = settings.value(SER_HEIGHT, 720).toInt();
+    width = settings.value(SER_WIDTH, 1920).toInt();
+    height = settings.value(SER_HEIGHT, 1080).toInt();
     fps = settings.value(SER_FPS, 60).toInt();
     enableYUV444 = settings.value(SER_YUV444, false).toBool();
     bitrateKbps = settings.value(SER_BITRATE, getDefaultBitrate(width, height, fps, enableYUV444)).toInt();
@@ -409,8 +409,27 @@ QString StreamingPreferences::importTunnelProfile(const QUrl& source)
     settings.setValue("tunnelProfileName", QFileInfo(source.toLocalFile()).fileName());
     integratedTunnelEnabled = true;
     save();
+    settings.sync();
+    m_TunnelProfileChanged = true;
     emit tunnelProfileChanged();
     emit proxySettingsChanged();
+    return QString();
+}
+
+bool StreamingPreferences::tunnelRestartNeeded() const
+{
+    return m_TunnelProfileChanged || (integratedTunnelEnabled && !IntegratedTunnel::active());
+}
+
+QString StreamingPreferences::restartApplication()
+{
+    save();
+    QSettings settings;
+    settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        return tr("Cannot save settings. Move the portable to a writable folder before restarting.");
+    }
+    QCoreApplication::exit(RestartExitCode);
     return QString();
 }
 

@@ -13,6 +13,7 @@ public:
     explicit IntegratedTunnel(QObject* parent = nullptr);
     ~IntegratedTunnel() override;
     bool start(QString* error);
+    void stop();
     static bool importProfile(const QUrl& source, QString* error);
     static bool hasProfile();
     static QString profilePath();

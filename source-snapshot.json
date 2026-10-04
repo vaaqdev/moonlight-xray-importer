@@ -1,7 +1,8 @@
 {
   "upstream_url": "https://github.com/moonlight-stream/moonlight-qt",
+  "upstream_root_revision": "de2467e433821664cdd2224aad8c89a625be1ad9",
   "upstream_revisions": {
-    ".": "8369d1a0e11b999d4d1598f62ca5f6dea49602fb",
+    ".": "dbd40590ddd2a8cdcc83c61c96d3094a17056238",
     "app/SDL_GameControllerDB": "8d9fefd7b810f2541f78cc7a8ccbd185bc84c7a5",
     "moonlight-common-c/moonlight-common-c": "f900dd4767759c7b9d0e93bcea666b55c69ea62f",
     "moonlight-common-c/moonlight-common-c/enet": "aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1",
@@ -516,6 +517,8 @@
     "scripts/svg2icns",
     "scripts/test-integrated-tunnel.cpp",
     "scripts/test-integrated-tunnel.pro",
+    "scripts/test-profile-restart-ui.ps1",
+    "scripts/test-profile-restart.py",
     "scripts/test-tunnel-lifecycle.py",
     "scripts/test-tunnel-sockets.c",
     "scripts/test-tunnel-sockets.py",

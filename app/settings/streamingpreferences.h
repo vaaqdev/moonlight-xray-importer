@@ -17,6 +17,8 @@ public:
     getDefaultBitrate(int width, int height, int fps, bool yuv444);
 
     Q_INVOKABLE void save();
+    Q_INVOKABLE QString restartApplication();
+    static constexpr int RestartExitCode = 73;
 
     void reload();
 
@@ -163,6 +165,7 @@ public:
     Q_PROPERTY(bool integratedTunnelEnabled MEMBER integratedTunnelEnabled NOTIFY proxySettingsChanged)
     Q_PROPERTY(bool tunnelProfilePresent READ tunnelProfilePresent NOTIFY tunnelProfileChanged)
     Q_PROPERTY(QString tunnelProfileName READ tunnelProfileName NOTIFY tunnelProfileChanged)
+    Q_PROPERTY(bool tunnelRestartNeeded READ tunnelRestartNeeded NOTIFY tunnelProfileChanged)
     Q_PROPERTY(QString proxyHost MEMBER proxyHost NOTIFY proxySettingsChanged)
     Q_PROPERTY(int proxyPort MEMBER proxyPort NOTIFY proxySettingsChanged)
     Q_PROPERTY(QString proxyUsername MEMBER proxyUsername NOTIFY proxySettingsChanged)
@@ -173,6 +176,7 @@ public:
     Q_INVOKABLE QString importTunnelProfile(const QUrl& source);
     bool tunnelProfilePresent() const;
     QString tunnelProfileName() const;
+    bool tunnelRestartNeeded() const;
 
     // Directly accessible members for preferences
     int width;
@@ -263,6 +267,7 @@ signals:
     void tunnelProfileChanged();
 
 private:
+    bool m_TunnelProfileChanged = false;
     explicit StreamingPreferences(QQmlEngine *qmlEngine);
 
     QString getSuffixFromLanguage(Language lang);
