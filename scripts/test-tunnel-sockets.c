@@ -1,4 +1,4 @@
-// Regression harness: builds the production PlatformSockets.c and ENet win32.c.
+// Regression harness: production PlatformSockets.c and the platform's ENet sockets.
 #include "Limelight-internal.h"
 #include <stdio.h>
 #include <stdarg.h>
@@ -13,15 +13,34 @@ static void logMessage(const char* format, ...) {
     va_end(args);
 }
 
-#define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s (WSA %d)\n", __LINE__, #x, WSAGetLastError()); return 1; } } while (0)
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s (socket error %d)\n", __LINE__, #x, LastSocketError()); return 1; } } while (0)
+#ifdef LC_WINDOWS
+#define BUFFER(size, data) {size, (void*)(data)}
+#else
+#define BUFFER(size, data) {(void*)(data), size}
+#endif
+#ifdef LC_DARWIN
+#define INIT_V4(addr) do { (addr)->sin_family = AF_INET; (addr)->sin_len = sizeof(*(addr)); } while (0)
+#else
+#define INIT_V4(addr) ((addr)->sin_family = AF_INET)
+#endif
 
 static struct sockaddr_storage destination;
 static SOCKET sharedSocket;
 
+#ifdef LC_WINDOWS
 static DWORD WINAPI parallelSend(void* arg) {
+#else
+static void* parallelSend(void* arg) {
+#endif
     (void)arg;
-    return sendUdpSocket(sharedSocket, "parallel", 8, (struct sockaddr*)&destination,
-                         sizeof(struct sockaddr_in)) == 8 ? 0 : 1;
+    int result = sendUdpSocket(sharedSocket, "parallel", 8, (struct sockaddr*)&destination,
+                              sizeof(struct sockaddr_in)) == 8 ? 0 : 1;
+#ifdef LC_WINDOWS
+    return result;
+#else
+    return (void*)(uintptr_t)result;
+#endif
 }
 
 static SOCKET udp(int family) {
@@ -39,7 +58,7 @@ int main(int argc, char** argv) {
         // Real end-to-end checks through Xray, not a mock implementation.
         LiSetSocks5Proxy(true, "127.0.0.1", (uint16_t)atoi(argv[1]), argv[2], argv[3]);
         struct sockaddr_in* remote = (struct sockaddr_in*)&destination;
-        remote->sin_family = AF_INET;
+        INIT_V4(remote);
         inet_pton(AF_INET, "1.1.1.1", &remote->sin_addr);
         SOCKET tcp = connectTcpSocket(&destination, sizeof(*remote), 80, 10);
         CHECK(tcp != INVALID_SOCKET);
@@ -62,13 +81,13 @@ int main(int argc, char** argv) {
         puts("PASS: production UDP wrapper through actual VLESS/Reality server");
         ENetAddress peer = {0}, local = {0}, returned = {0};
         memcpy(&peer.address, remote, sizeof(*remote)); peer.addressLength = sizeof(*remote);
-        ((struct sockaddr_in*)&local.address)->sin_family = AF_INET; local.addressLength = sizeof(*remote);
+        INIT_V4((struct sockaddr_in*)&local.address); local.addressLength = sizeof(*remote);
         ENetSocket enet = enet_socket_create(AF_INET, ENET_SOCKET_TYPE_DATAGRAM);
         CHECK(enet_socket_bind(enet, &local) == 0);
         setNonFatalRecvTimeoutMs(enet, 10000);
-        ENetBuffer parts[2] = {{12, (void*)query}, {sizeof(query)-12, (void*)(query+12)}};
+        ENetBuffer parts[2] = {BUFFER(12, query), BUFFER(sizeof(query)-12, query+12)};
         CHECK(enet_socket_send(enet, &peer, &local, parts, 2) == sizeof(query));
-        ENetBuffer reply = {sizeof(buffer), buffer};
+        ENetBuffer reply = BUFFER(sizeof(buffer), buffer);
         CHECK(enet_socket_receive(enet, &returned, &local, &reply, 1) >= 12);
         CHECK(buffer[0] == 0x4d && buffer[1] == 0x4c && ((unsigned char)buffer[2] & 0x80));
         enet_socket_destroy(enet);
@@ -78,7 +97,7 @@ int main(int argc, char** argv) {
     }
     LiSetSocks5Proxy(true, "127.0.0.1", (uint16_t)atoi(argv[1]), "testuser", "testpass");
     struct sockaddr_in* dest = (struct sockaddr_in*)&destination;
-    dest->sin_family = AF_INET;
+    INIT_V4(dest);
     dest->sin_port = htons(47998);
     inet_pton(AF_INET, "203.0.113.10", &dest->sin_addr);
 
@@ -114,6 +133,7 @@ int main(int argc, char** argv) {
 
     sharedSocket = udp(AF_INET);
     CHECK(sharedSocket != INVALID_SOCKET);
+#ifdef LC_WINDOWS
     HANDLE threads[8];
     for (int i = 0; i < 8; i++) threads[i] = CreateThread(NULL, 0, parallelSend, NULL, 0, NULL);
     CHECK(WaitForMultipleObjects(8, threads, TRUE, 15000) == WAIT_OBJECT_0);
@@ -121,6 +141,13 @@ int main(int argc, char** argv) {
         DWORD code;
         CHECK(GetExitCodeThread(threads[i], &code) && code == 0);
         CloseHandle(threads[i]);
+#else
+    pthread_t threads[8];
+    for (int i = 0; i < 8; i++) CHECK(pthread_create(&threads[i], NULL, parallelSend, NULL) == 0);
+    for (int i = 0; i < 8; i++) {
+        void* result;
+        CHECK(pthread_join(threads[i], &result) == 0 && result == NULL);
+#endif
         char buffer[32];
         CHECK(recvUdpSocket(sharedSocket, buffer, sizeof(buffer), false) == 8);
         CHECK(memcmp(buffer, "parallel", 8) == 0);
@@ -137,7 +164,7 @@ int main(int argc, char** argv) {
     CHECK(memcmp(buffer, "malformed", 9) == 0);
     CHECK(sendUdpSocket(s, "oversize", 8, (struct sockaddr*)dest, sizeof(*dest)) == 8);
     CHECK(recvUdpSocket(s, buffer, sizeof(buffer), false) < 0);
-    CHECK(WSAGetLastError() == WSAEMSGSIZE);
+    CHECK(LastSocketError() == EMSGSIZE);
     closeSocket(s);
     puts("PASS: malformed/fragmented/spoofed UDP discarded, oversize detected");
 
@@ -151,16 +178,16 @@ int main(int argc, char** argv) {
     ENetAddress local = {0}, peer = {0}, returned = {0};
     memcpy(&peer.address, dest, sizeof(*dest));
     peer.addressLength = sizeof(*dest);
-    ((struct sockaddr_in*)&local.address)->sin_family = AF_INET;
+    INIT_V4((struct sockaddr_in*)&local.address);
     local.addressLength = sizeof(*dest);
     ENetSocket enet = enet_socket_create(AF_INET, ENET_SOCKET_TYPE_DATAGRAM);
     CHECK(enet != INVALID_SOCKET);
     CHECK(enet_socket_bind(enet, &local) == 0);
     setNonFatalRecvTimeoutMs(enet, 2000);
-    ENetBuffer fragments[3] = {{5, "hello"}, {1, "-"}, {5, "world"}};
+    ENetBuffer fragments[3] = {BUFFER(5, "hello"), BUFFER(1, "-"), BUFFER(5, "world")};
     CHECK(enet_socket_send(enet, &peer, &local, fragments, 3) == 11);
     char left[5], right[6];
-    ENetBuffer output[2] = {{5, left}, {6, right}};
+    ENetBuffer output[2] = {BUFFER(5, left), BUFFER(6, right)};
     CHECK(enet_socket_receive(enet, &returned, &local, output, 2) == 11);
     CHECK(memcmp(left, "hello", 5) == 0 && memcmp(right, "-world", 6) == 0);
     CHECK(returned.addressLength == sizeof(*dest));

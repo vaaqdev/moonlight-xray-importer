@@ -1,0 +1,41 @@
+name: Build macOS Importer
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: macos-importer-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.11.2
+          cache: true
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@073e34d7c2ab4ae6961ed7cca690b3abd5ba5a7e
+      - name: Install DMG tool
+        run: npm install --global create-dmg
+      - name: Build universal app and DMG
+        run: bash scripts/generate-dmg.sh Release
+      - name: Test POSIX TCP and UDP transport
+        shell: bash
+        run: |
+          set -e
+          core=moonlight-common-c/moonlight-common-c
+          cc -O2 -DHAS_SOCKLEN_T -I"$core/src" -I"$core/enet/include" \
+            scripts/test-tunnel-sockets.c "$core/src/PlatformSockets.c" "$core/enet/unix.c" \
+            -o build/tunnel-sockets-tests -pthread
+          python3 scripts/test-tunnel-sockets.py "$PWD/build/tunnel-sockets-tests"
+      - name: Verify app and tunnel bundle
+        run: python3 scripts/verify-macos-bundle.py build/build-Release/app/Moonlight.app
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Moonlight-6.2.0-macOS-Importer-universal
+          path: build/installer-Release/*.dmg
+          if-no-files-found: error
+          compression-level: 0

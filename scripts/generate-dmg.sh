@@ -37,9 +37,7 @@ python3 $SOURCE_ROOT/setup-deps.py
 echo Cleaning output directories
 rm -rf $BUILD_FOLDER
 rm -rf $INSTALLER_FOLDER
-mkdir $BUILD_ROOT
-mkdir $BUILD_FOLDER
-mkdir $INSTALLER_FOLDER
+mkdir -p "$BUILD_FOLDER" "$INSTALLER_FOLDER" || fail "Cannot create build directories!"
 
 # Enable LTO for official builds
 export CFLAGS=-flto=thin
@@ -86,6 +84,7 @@ if [ ! -f "$XRAY_CACHE/xray" ] || [ ! -f "$XRAY_CACHE/xray-x86_64" ]; then
   unzip -o -q "$XRAY_WORK/x64.zip" -d "$XRAY_WORK/x64" || fail "Xray x86_64 unzip failed!"
   cp "$XRAY_WORK/arm64/xray" "$XRAY_CACHE/xray" || fail "Xray arm64 extract failed!"
   cp "$XRAY_WORK/x64/xray" "$XRAY_CACHE/xray-x86_64" || fail "Xray x86_64 extract failed!"
+  cp "$XRAY_WORK/arm64/LICENSE" "$XRAY_CACHE/LICENSE" || fail "Xray license extract failed!"
   for data_file in geoip.dat geosite.dat; do
     if [ -f "$XRAY_WORK/arm64/$data_file" ]; then cp "$XRAY_WORK/arm64/$data_file" "$XRAY_CACHE/$data_file"; fi
   done
@@ -99,10 +98,19 @@ done
 chmod +x "$XRAY_RESOURCES/xray" "$XRAY_RESOURCES/xray-x86_64" || fail "chmod Xray failed!"
 cc -O2 -Wall -Werror -arch x86_64 -arch arm64 -o "$XRAY_RESOURCES/xray-launcher" "$SOURCE_ROOT/scripts/xray-launcher.c" || fail "xray-launcher build failed!"
 echo Xray tunnel core bundled
+cp "$XRAY_CACHE/LICENSE" "$XRAY_RESOURCES/LICENSE" || fail "Xray license copy failed!"
+cp "$SOURCE_ROOT/LICENSE" "$BUILD_FOLDER/app/Moonlight.app/Contents/Resources/LICENSE-Moonlight.txt" || fail "Moonlight license copy failed!"
 
 if [ "$SIGNING_IDENTITY" != "" ]; then
   echo Signing app bundle
   codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" $BUILD_FOLDER/app/Moonlight.app || fail "Signing failed!"
+else
+  # Apple Silicon requires valid code signatures. Ad-hoc signing permits local
+  # execution; Developer ID signing/notarization remains a separate release step.
+  codesign --force --sign - "$XRAY_RESOURCES/xray" || fail "Xray arm64 ad-hoc signing failed!"
+  codesign --force --sign - "$XRAY_RESOURCES/xray-x86_64" || fail "Xray x86_64 ad-hoc signing failed!"
+  codesign --force --sign - "$XRAY_RESOURCES/xray-launcher" || fail "Launcher ad-hoc signing failed!"
+  codesign --force --deep --sign - "$BUILD_FOLDER/app/Moonlight.app" || fail "Bundle ad-hoc signing failed!"
 fi
 
 echo Creating DMG
