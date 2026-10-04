@@ -4,7 +4,13 @@ Private development copy of [Moonlight Qt](https://github.com/moonlight-stream/m
 
 This version adds a managed Xray process, JSON profile import and SOCKS5 TCP/UDP transport. A successful import explicitly requires a restart and offers **Restart now** or **Later**; Settings retains a restart action while the imported profile is pending.
 
-The Windows x64 Importer portable bundles MSVC, Universal CRT and standalone ICU 72.1. No server profile, credentials or personal settings are distributed. Windows 10/11 and suitable graphics drivers are required. macOS adaptations are present but have not been compiled or tested on macOS yet.
+The Windows x64 Importer portable bundles MSVC, Universal CRT and standalone ICU 72.1. No server profile, credentials or personal settings are distributed. Windows 10/11 and suitable graphics drivers are required.
+
+The macOS Importer is a universal Intel/Apple Silicon app targeting macOS 13 or later, built with Qt 6.11.2 on GitHub Actions. The native runner verifies TCP/UDP transport, ENet, JSON imports, Xray startup/shutdown and bundled dependencies. The development DMG is ad-hoc signed and is not Apple-notarized.
+
+### macOS build
+
+Run the **Build macOS Importer** workflow manually from GitHub Actions. It generates the universal DMG and uploads it as an artifact after the native tests pass. The profile is stored in the user's application data directory, so importing does not modify the signed application bundle.
 
 The GitHub development copy includes the modified submodule sources as ordinary files. `source-snapshot.json` records their revisions, including the modified Moonlight streaming and ENet sources.
 
