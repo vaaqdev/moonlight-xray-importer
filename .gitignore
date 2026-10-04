@@ -1,0 +1,22 @@
+*pro.user
+
+
+**/.vs/
+.vscode/
+build/
+libs/
+config.tests/*/.qmake.stash
+config.tests/*/Makefile
+
+# Generated portable distributions and local server profiles.
+/Moonlight-*Portable*/
+/Moonlight-*Portable*.zip
+**/Xray/profile.json
+
+# Personal portable package (contains the user's Xray profile).
+/Moonlight-VLESS-Portable/
+/Moonlight-VLESS-Portable.zip
+/Moonlight-VLESS-Import-Portable/
+/Moonlight-VLESS-Import-Portable.zip
+/Moonlight-VLESS-Import-Portable-Completo.zip
+/Moonlight-VLESS-Import-Portable-Completo-ICU.zip
