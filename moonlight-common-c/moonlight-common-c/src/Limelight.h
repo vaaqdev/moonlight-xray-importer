@@ -372,6 +372,12 @@ typedef struct _AUDIO_RENDERER_CALLBACKS {
 // Use this function to zero the audio callbacks when allocated on the stack or heap
 void LiInitializeAudioCallbacks(PAUDIO_RENDERER_CALLBACKS arCallbacks);
 
+// Enables verbose RTSP handshake tracing through Limelog(). When enabled, every
+// request/response and any serialization or decryption failure is logged with an
+// [rtsp] prefix. Intended for diagnosing handshake failures (for example over the
+// integrated tunnel), so it is left disabled unless the host app asks for it.
+void LiSetRtspTraceEnabled(int enabled);
+
 // Subject to change in future releases
 // Use LiGetStageName() for stable stage names
 #define STAGE_NONE 0

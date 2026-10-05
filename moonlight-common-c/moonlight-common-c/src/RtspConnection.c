@@ -1,6 +1,9 @@
 #include "Limelight-internal.h"
 #include "Rtsp.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+
 #define RTSP_CONNECT_TIMEOUT_SEC 10
 #define RTSP_RECEIVE_TIMEOUT_SEC 15
 #define RTSP_RETRY_DELAY_MS 500
@@ -26,6 +29,29 @@ static ENetPeer* peer;
 
 #define CHAR_TO_INT(x) ((x) - '0')
 #define CHAR_IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
+
+static bool rtspTraceEnabled = false;
+
+void LiSetRtspTraceEnabled(int enabled) {
+    rtspTraceEnabled = enabled ? true : false;
+}
+
+// Diagnostic-only tracing helper. Emits through Limelog() so the host app can
+// forward it into its own logging/diagnostics pipeline.
+static void rtspTrace(const char* format, ...) {
+    va_list ap;
+    char buffer[1024];
+
+    if (!rtspTraceEnabled) {
+        return;
+    }
+
+    va_start(ap, format);
+    vsnprintf(buffer, sizeof(buffer), format, ap);
+    va_end(ap);
+
+    Limelog("[rtsp] %s", buffer);
+}
 
 // Create RTSP Option
 static POPTION_ITEM createOptionItem(char* option, char* content)
@@ -422,11 +448,16 @@ static bool transactRtspMessageTcp(PRTSP_MESSAGE request, PRTSP_MESSAGE response
         }
     } while (connectRetries++ < (RTSP_CONNECT_TIMEOUT_SEC * 1000) / RTSP_RETRY_DELAY_MS && !ConnectionInterrupted);
     if (sock == INVALID_SOCKET) {
+        rtspTrace("connect to port %d failed: error %d", RtspPortNumber, *error);
         return ret;
     }
 
+    rtspTrace("> %s %s (seq=%d, enc=%d)", request->message.request.command,
+              request->message.request.target, request->sequenceNumber, encryptedRtspEnabled);
+
     serializedMessage = sealRtspMessage(request, &messageLen);
     if (serializedMessage == NULL) {
+        rtspTrace("failed to serialize or encrypt the %s request", request->message.request.command);
         closeSocket(sock);
         sock = INVALID_SOCKET;
         return ret;
@@ -502,6 +533,14 @@ static bool transactRtspMessageTcp(PRTSP_MESSAGE request, PRTSP_MESSAGE response
 
     // Decrypt (if necessary) and deserialize the RTSP response
     ret = unsealRtspMessage(responseBuffer, offset, response);
+
+    if (ret) {
+        rtspTrace("< %d %s (seq=%d)", response->message.response.statusCode,
+                  response->message.response.statusString, response->sequenceNumber);
+    }
+    else {
+        rtspTrace("< response could not be decrypted or parsed");
+    }
 
 Exit:
     if (serializedMessage != NULL) {
@@ -986,6 +1025,10 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         PltSafeStrcpy(urlAddr, sizeof(urlAddr), "0.0.0.0");
         snprintf(rtspTargetUrl, sizeof(rtspTargetUrl), "rtsp%s://%s:%u", useEnet ? "ru" : "", urlAddr, RtspPortNumber);
     }
+
+    rtspTrace("handshake start: target=%s port=%d enet=%d enc=%d remote=%d",
+              rtspTargetUrl, RtspPortNumber, useEnet, encryptedRtspEnabled,
+              StreamConfig.streamingRemotely);
 
     switch (AppVersionQuad[0]) {
         case 3:

@@ -5,6 +5,9 @@
 #include "streaming/streamutils.h"
 #include "backend/richpresencemanager.h"
 
+#include <cstdarg>
+#include <cstdio>
+
 #include <Limelight.h>
 #include "SDL_compat.h"
 #include "utils.h"
@@ -156,13 +159,27 @@ void Session::clConnectionTerminated(int errorCode)
 void Session::clLogMessage(const char* format, ...)
 {
     va_list ap;
+    va_list apCopy;
+    char buffer[1024];
 
     va_start(ap, format);
+    va_copy(apCopy, ap);
     SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION,
                     SDL_LOG_PRIORITY_INFO,
                     format,
                     ap);
     va_end(ap);
+
+    // Mirror moonlight-common-c messages into the tunnel diagnostics. Without
+    // this, RTSP/stream failures only exist in the Moonlight log on disk, which
+    // is not part of the exported report.
+    vsnprintf(buffer, sizeof(buffer), format, apCopy);
+    va_end(apCopy);
+
+    QString text = TunnelDiagnostics::sanitize(QString::fromLocal8Bit(buffer)).trimmed();
+    if (!text.isEmpty()) {
+        TunnelDiagnostics::write("stream.log", text);
+    }
 }
 
 void Session::clRumble(unsigned short controllerNumber, unsigned short lowFreqMotor, unsigned short highFreqMotor)
@@ -1747,6 +1764,10 @@ bool Session::startConnectionAsync()
                          proxyUsername.data(),
                          proxyPassword.data());
     }
+
+    // Verbose RTSP tracing keeps tunnel-only handshake failures diagnosable
+    // from the exported diagnostics report.
+    LiSetRtspTraceEnabled(IntegratedTunnel::required() ? 1 : 0);
 
     int err = LiStartConnection(&hostInfo, &m_StreamConfig, &k_ConnCallbacks,
                                  &m_VideoCallbacks, &m_AudioCallbacks,
