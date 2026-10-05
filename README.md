@@ -2,7 +2,17 @@
 
 Private development copy of [Moonlight Qt](https://github.com/moonlight-stream/moonlight-qt), currently based on **6.2.0**. The original licenses and author notices are retained.
 
-This version adds a managed Xray process, JSON profile import and SOCKS5 TCP/UDP transport. A successful import explicitly requires a restart and offers **Restart now** or **Later**; Settings retains a restart action while the imported profile is pending.
+This version adds a managed Xray process, JSON profile import and SOCKS5 TCP/UDP transport. The first successful import displays **Relaunching automatically** with a three-second countdown; **Later** cancels it. Subsequent profile replacements offer **Restart now** or **Later**.
+
+### Connection recovery and diagnostics
+
+Profile validation and Xray startup run in the background. Validation allows 30 seconds after process startup; the authenticated local proxy gets a 20-second readiness window. The Windows package includes GeoIP/Geosite files for profiles that require them.
+
+Automatic reconnect is enabled by default. Network interface/address changes, OS reachability notifications and an unexpected Xray exit trigger retries with delays of 1, 2, 5, 10, 20 and up to 30 seconds. Moonlight remains open and does not fall back to direct streaming. Network-interrupted GUI streams attempt a fresh session after cleanup, resuming the existing remote app where possible; **Cancel reconnect** stops waiting. Codec/DRM errors and normal user disconnects are not treated as network recovery events.
+
+**Settings > Network Settings** exposes tunnel status, **Retry Xray now**, **Run connection diagnostics**, **Open diagnostic logs** and **Export diagnostic report**. Reports include sanitized stage timings, process errors and recent events, excluding the JSON profile and known credentials/keys/UUIDs. The dedicated log is `logs/tunnel-debug.jsonl`, rotated at 2 MiB with two backups; an unwritable portable directory falls back to the user's app-data directory. An endpoint TCP probe does not validate Reality credentials or streaming UDP.
+
+The diagnostic build was tested on Windows with real Xray delayed by eight seconds, forced core termination, simulated network changes, GUI automatic relaunch and report export. Physical Wi-Fi transitions and full streaming recovery on the reported laptop still require a user-side test and its diagnostic report.
 
 The Windows x64 Importer portable bundles MSVC, Universal CRT and standalone ICU 72.1. No server profile, credentials or personal settings are distributed. Windows 10/11 and suitable graphics drivers are required.
 

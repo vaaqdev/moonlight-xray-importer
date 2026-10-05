@@ -166,6 +166,13 @@ public:
     Q_PROPERTY(bool tunnelProfilePresent READ tunnelProfilePresent NOTIFY tunnelProfileChanged)
     Q_PROPERTY(QString tunnelProfileName READ tunnelProfileName NOTIFY tunnelProfileChanged)
     Q_PROPERTY(bool tunnelRestartNeeded READ tunnelRestartNeeded NOTIFY tunnelProfileChanged)
+    Q_PROPERTY(bool tunnelImportBusy READ tunnelImportBusy NOTIFY tunnelDiagnosticsChanged)
+    Q_PROPERTY(bool tunnelDiagnosticsBusy READ tunnelDiagnosticsBusy NOTIFY tunnelDiagnosticsChanged)
+    Q_PROPERTY(QString tunnelStatus READ tunnelStatus NOTIFY tunnelDiagnosticsChanged)
+    Q_PROPERTY(QString tunnelLastError READ tunnelLastError NOTIFY tunnelDiagnosticsChanged)
+    Q_PROPERTY(QString tunnelLogDirectory READ tunnelLogDirectory NOTIFY tunnelDiagnosticsChanged)
+    Q_PROPERTY(bool tunnelAutoRetryEnabled READ tunnelAutoRetryEnabled WRITE setTunnelAutoRetryEnabled NOTIFY tunnelDiagnosticsChanged)
+    Q_PROPERTY(bool tunnelReady READ tunnelReady NOTIFY tunnelDiagnosticsChanged)
     Q_PROPERTY(QString proxyHost MEMBER proxyHost NOTIFY proxySettingsChanged)
     Q_PROPERTY(int proxyPort MEMBER proxyPort NOTIFY proxySettingsChanged)
     Q_PROPERTY(QString proxyUsername MEMBER proxyUsername NOTIFY proxySettingsChanged)
@@ -174,9 +181,22 @@ public:
 
     Q_INVOKABLE bool retranslate();
     Q_INVOKABLE QString importTunnelProfile(const QUrl& source);
+    Q_INVOKABLE void importTunnelProfileAsync(const QUrl& source);
+    Q_INVOKABLE void runTunnelDiagnostics();
+    Q_INVOKABLE QString exportTunnelDiagnostics();
+    Q_INVOKABLE void openTunnelLogs();
+    Q_INVOKABLE QString retryTunnel();
     bool tunnelProfilePresent() const;
     QString tunnelProfileName() const;
     bool tunnelRestartNeeded() const;
+    bool tunnelImportBusy() const { return m_TunnelImportBusy; }
+    bool tunnelDiagnosticsBusy() const { return m_TunnelDiagnosticsBusy; }
+    QString tunnelStatus() const;
+    QString tunnelLastError() const;
+    QString tunnelLogDirectory() const;
+    bool tunnelAutoRetryEnabled() const { return m_TunnelAutoRetry; }
+    bool tunnelReady() const;
+    void setTunnelAutoRetryEnabled(bool enabled);
 
     // Directly accessible members for preferences
     int width;
@@ -265,9 +285,17 @@ signals:
     void rendererSelectionChanged();
     void proxySettingsChanged();
     void tunnelProfileChanged();
+    void tunnelDiagnosticsChanged();
+    void tunnelImportFinished(QString error);
+    void tunnelDiagnosticsFinished(QString result);
+    void tunnelRecovered();
 
 private:
     bool m_TunnelProfileChanged = false;
+    bool m_TunnelImportBusy = false;
+    bool m_TunnelDiagnosticsBusy = false;
+    bool m_TunnelAutoRetry = true;
+    void completeTunnelImport(const QUrl& source);
     explicit StreamingPreferences(QQmlEngine *qmlEngine);
 
     QString getSuffixFromLanguage(Language lang);

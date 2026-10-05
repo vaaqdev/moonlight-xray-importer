@@ -5,6 +5,7 @@ import QtQuick.Window 2.2
 import SdlGamepadKeyNavigation 1.0
 import Session 1.0
 import SystemProperties 1.0
+import StreamingPreferences 1.0
 
 Item {
     property Session session
@@ -13,6 +14,18 @@ Item {
                                            qsTr("Starting %1...").arg(appName)
     property bool isResume : false
     property bool quitAfter : false
+    property bool waitingReconnect: false
+    property int reconnectAttempts: 0
+
+    function hookSession() {
+        session.stageStarting.connect(stageStarting)
+        session.stageFailed.connect(stageFailed)
+        session.connectionStarted.connect(connectionStarted)
+        session.displayLaunchError.connect(displayLaunchError)
+        session.quitStarting.connect(quitStarting)
+        session.sessionFinished.connect(sessionFinished)
+        session.readyForDeletion.connect(sessionReadyForDeletion)
+    }
 
     function stageStarting(stage)
     {
@@ -61,6 +74,16 @@ Item {
 
     function sessionFinished(portTestResult)
     {
+        if (!quitAfter && session && session.canReconnect && StreamingPreferences.tunnelAutoRetryEnabled) {
+            waitingReconnect = true
+            stageText = qsTr("Connection lost. Waiting to reconnect...")
+            stageSpinner.visible = true
+            stageLabel.visible = true
+            window.visible = true
+            SdlGamepadKeyNavigation.enable()
+            streamSegueErrorDialog.text = ""
+            return
+        }
         if (portTestResult !== 0 && portTestResult !== -1 && streamSegueErrorDialog.text) {
             streamSegueErrorDialog.text += "\n\n" + qsTr("This PC's Internet connection is blocking Moonlight. Streaming over the Internet may not work while connected to this network.")
         }
@@ -94,6 +117,16 @@ Item {
 
     function sessionReadyForDeletion()
     {
+        if (waitingReconnect) {
+            var replacement = session.createReconnectSession()
+            session = null
+            gc()
+            session = replacement
+            streamLoader.active = false
+            reconnectTimer.interval = Math.min(30000, 1000 * Math.pow(2, Math.min(reconnectAttempts, 5)))
+            reconnectTimer.start()
+            return
+        }
         // Garbage collect the Session object since it's pretty heavyweight
         // and keeps other libraries (like SDL_TTF) around until it is deleted.
         session = null
@@ -113,13 +146,7 @@ Item {
         toolBar.visible = false
 
         // Hook up our signals
-        session.stageStarting.connect(stageStarting)
-        session.stageFailed.connect(stageFailed)
-        session.connectionStarted.connect(connectionStarted)
-        session.displayLaunchError.connect(displayLaunchError)
-        session.quitStarting.connect(quitStarting)
-        session.sessionFinished.connect(sessionFinished)
-        session.readyForDeletion.connect(sessionReadyForDeletion)
+        hookSession()
 
         // Ensure the SystemProperties async thread is finished,
         // since it may currently be using the SDL video subsystem
@@ -127,6 +154,31 @@ Item {
 
         // Kick off the stream
         streamLoader.active = true
+    }
+
+    Timer {
+        id: reconnectTimer
+        onTriggered: {
+            if (!StreamingPreferences.tunnelAutoRetryEnabled) {
+                waitingReconnect = false
+                session = null
+                gc()
+                stackView.pop()
+                return
+            }
+            if (!StreamingPreferences.tunnelReady) {
+                stageText = qsTr("Waiting for Wi-Fi / Xray to reconnect...")
+                interval = 2000
+                restart()
+                return
+            }
+            waitingReconnect = false
+            reconnectAttempts++
+            isResume = true
+            stageText = qsTr("Reconnecting %1 (attempt %2)...").arg(appName).arg(reconnectAttempts)
+            hookSession()
+            streamLoader.active = true
+        }
     }
 
     Timer {
@@ -230,5 +282,21 @@ Item {
         verticalAlignment: Text.AlignVCenter
 
         wrapMode: Text.Wrap
+    }
+
+    Button {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 15
+        visible: waitingReconnect && reconnectTimer.running
+        text: qsTr("Cancel reconnect")
+        onClicked: {
+            reconnectTimer.stop()
+            waitingReconnect = false
+            session = null
+            gc()
+            toolBar.visible = true
+            stackView.pop()
+        }
     }
 }

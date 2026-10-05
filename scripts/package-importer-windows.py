@@ -83,7 +83,8 @@ def main():
             definition.write_text('LIBRARY icuuc\nEXPORTS\n' + '\n'.join(definitions) + '\n', encoding='ascii')
             subprocess.run(['link', '/NOLOGO', '/DLL', '/NOENTRY', '/MACHINE:X64', f'/DEF:{definition}', f'/OUT:{work / "icuuc.dll"}'], cwd=work, check=True)
             shutil.copy2(work / 'icuuc.dll', root / 'icuuc.dll')
-    included = [p for p in root.rglob('*') if p.is_file() and p.suffix.lower() not in ('.ini', '.log') and p.name.lower() != 'profile.json']
+    included = [p for p in root.rglob('*') if p.is_file() and p.suffix.lower() not in ('.ini', '.log', '.jsonl')
+                and p.name.lower() != 'profile.json' and 'logs' not in p.relative_to(root).parts]
     dlls = {p.name.lower(): p for p in included if p.suffix.lower() in ('.dll', '.exe')}
     parsed = {name: PE(path) for name, path in dlls.items()}
     system = Path(os.environ['SystemRoot']) / 'System32'

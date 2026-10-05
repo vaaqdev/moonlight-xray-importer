@@ -1,4 +1,7 @@
 #include "backend/integratedtunnel.h"
+#include "backend/tunneldiagnostics.h"
+#include <QJsonObject>
+#include <QTimer>
 #include <QCoreApplication>
 #include <QTcpSocket>
 #include <QDebug>
@@ -79,6 +82,36 @@ int main(int argc, char** argv)
     QStandardPaths::setTestModeEnabled(true);
 #endif
     if (app.arguments().contains("--import-tests")) return testProfileImport();
+    if (app.arguments().contains("--diagnostics-tests")) {
+        const QString secret = "fixture-private-password-123";
+        const QString endpoint = "private-endpoint.example.invalid";
+        TunnelDiagnostics::protectProfile(QJsonObject{{"password", secret}, {"address", endpoint}});
+        TunnelDiagnostics::write("test.redaction", secret + " " + endpoint + " 203.0.113.77");
+        const auto report = TunnelDiagnostics::exportReport("test", secret);
+        QFile file(report);
+        if (!file.open(QIODevice::ReadOnly)) return 40;
+        const auto text = file.readAll();
+        if (text.contains(secret.toUtf8()) || text.contains(endpoint.toUtf8()) || text.contains("203.0.113.77")) return 41;
+        if (!text.contains("[redacted]")) return 42;
+        qInfo() << "PASS: persistent diagnostic report redacts credentials, endpoints and IP addresses";
+        return 0;
+    }
+    if (app.arguments().contains("--reconnect-test")) {
+        IntegratedTunnel tunnel;
+        int readyCount = 0;
+        QObject::connect(&tunnel, &IntegratedTunnel::connectionRecovered, &app, [&] {
+            ++readyCount;
+            if (!IntegratedTunnel::active()) { app.exit(43); return; }
+            if (readyCount == 1) QTimer::singleShot(1000, &tunnel, &IntegratedTunnel::requestReconnect);
+            else {
+                qInfo() << "PASS: simulated network change reconnects Xray without replacing the application process";
+                app.quit();
+            }
+        });
+        QTimer::singleShot(45000, &app, [&] { app.exit(44); });
+        tunnel.startAsync();
+        return app.exec();
+    }
     if (app.arguments().contains("--local-lifecycle-tests")) {
         QTemporaryDir directory;
         QFile file(directory.path() + "/local profile.json");

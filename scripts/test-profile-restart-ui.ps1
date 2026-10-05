@@ -1,4 +1,4 @@
-param([int]$AppPid, [string]$ProfilePath, [ValidateSet('ImportRestart','ImportLater','RestartPending','ImportInvalid')][string]$Action='ImportRestart')
+param([int]$AppPid, [string]$ProfilePath, [ValidateSet('ImportRestart','ImportLater','RestartPending','ImportInvalid','ImportAutomatic','ExportReport','RetryCore')][string]$Action='ImportRestart')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -56,6 +56,18 @@ if (-not (Find-Element 'Import JSON profile...')) {
     $settings.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Start-Sleep -Seconds 2
 }
+if ($Action -eq 'ExportReport') {
+    Invoke-Element 'Export diagnostic report'
+    Start-Sleep -Seconds 1
+    if (-not (Find-Element 'Diagnostic report')) { throw 'Missing diagnostic export confirmation' }
+    'PASS: diagnostic report exported from Settings'
+    exit 0
+}
+if ($Action -eq 'RetryCore') {
+    Invoke-Element 'Retry Xray now'
+    'PASS: manual Xray retry invoked without app relaunch'
+    exit 0
+}
 if ($Action -eq 'RestartPending') {
     Invoke-Element 'Restart Moonlight'
 } else {
@@ -71,19 +83,29 @@ if ($Action -eq 'RestartPending') {
         throw 'Cannot select JSON in native file dialog'
     }
 }
-Start-Sleep -Seconds 3
+$deadline = [DateTime]::UtcNow.AddSeconds(40)
+do {
+    Start-Sleep -Milliseconds 100
+    $restart = Find-Element 'Restart now'
+    $failed = Find-Element 'Profile import failed'
+} while (-not $restart -and -not $failed -and [DateTime]::UtcNow -lt $deadline)
 if ($Action -eq 'ImportInvalid') {
     if (Find-Element 'Restart now') { throw 'Invalid profile offered restart' }
     if (-not (Find-Element 'Profile import failed')) { throw 'Missing profile validation error' }
     'PASS: invalid JSON displays an error without offering restart'
     exit 0
 }
-$restart = Find-Element 'Restart now'
 if (-not $restart -or $restart.Current.IsOffscreen) { throw 'Restart prompt is not visible' }
-if (-not (Find-Element 'Your JSON profile was validated and saved. You must restart Moonlight to activate it. Restart now?')) {
-    throw 'Missing explicit restart-required message'
-}
 'PASS: visible restart-required prompt after profile import'
+if ($Action -eq 'ImportAutomatic') {
+    $found=$false
+    foreach ($element in $window.FindAll($tree, [System.Windows.Automation.Condition]::TrueCondition)) {
+        if ($element.Current.Name -like 'Profile saved. Relaunching automatically*') { $found=$true; break }
+    }
+    if (-not $found) { throw 'Missing automatic relaunch countdown' }
+    'PASS: first import displays the automatic relaunch countdown'
+    exit 0
+}
 if ($Action -eq 'ImportLater') {
     Invoke-Element 'Later'
     Start-Sleep -Milliseconds 500

@@ -1,4 +1,4 @@
-QT += core quick network quickcontrols2 svg
+QT += core quick network quickcontrols2 svg concurrent
 CONFIG += c++17
 
 macx {
@@ -172,6 +172,7 @@ macx {
 
 SOURCES += \
     backend/integratedtunnel.cpp \
+    backend/tunneldiagnostics.cpp \
     backend/nvaddress.cpp \
     backend/nvapp.cpp \
     cli/pair.cpp \
@@ -214,6 +215,7 @@ SOURCES += \
 
 HEADERS += \
     backend/integratedtunnel.h \
+    backend/tunneldiagnostics.h \
     SDL_compat.h \
     backend/nvaddress.h \
     backend/nvapp.h \

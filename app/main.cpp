@@ -774,18 +774,10 @@ int main(int argc, char *argv[])
 
     IntegratedTunnel integratedTunnel;
     IntegratedTunnel::setRequired(StreamingPreferences::get()->integratedTunnelEnabled);
+    integratedTunnel.setAutomaticRetryEnabled(StreamingPreferences::get()->tunnelAutoRetryEnabled());
     if (IntegratedTunnel::required()) {
-        QString tunnelError;
-        if (!integratedTunnel.start(&tunnelError)) {
-            qCritical().noquote() << "Integrated tunnel startup failed:" << tunnelError;
-#ifdef Q_OS_WIN
-            const QString message = tunnelError + "\n\nOpen Settings > Network Settings to import a valid JSON profile, then restart Moonlight.";
-            MessageBoxW(nullptr, reinterpret_cast<LPCWSTR>(message.utf16()),
-                        L"Moonlight - Xray", MB_OK | MB_ICONERROR);
-#elif defined(Q_OS_MACOS)
-            showTunnelStartupError(tunnelError + "\n\nOpen Settings > Network Settings to import a valid JSON profile, then restart Moonlight.");
-#endif
-        }
+        // Show the UI while Xray is checked/started, including on slow laptops.
+        QTimer::singleShot(100, &integratedTunnel, &IntegratedTunnel::startAsync);
     }
 
     if (IntegratedTunnel::required()) {

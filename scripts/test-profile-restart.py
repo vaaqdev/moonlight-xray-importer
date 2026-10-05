@@ -79,6 +79,7 @@ def verify_tunnel(exe):
         sock.sendall(b'\x01' + bytes([len(username)]) + username + bytes([len(password)]) + password)
         assert sock.recv(2) == bytes.fromhex('0100')
     print('PASS: relaunched app owns a working authenticated Xray SOCKS5 tunnel', flush=True)
+    return pids[0]
 
 with tempfile.TemporaryDirectory(prefix='importer-restart-') as temp:
     root = Path(temp)
@@ -88,6 +89,8 @@ with tempfile.TemporaryDirectory(prefix='importer-restart-') as temp:
         archive.extractall(root)
     folder = root / 'Moonlight-VLESS-Import-Portable'
     exe = folder / 'Moonlight.exe'
+    recovery_start = '--startup-recovery' in sys.argv[2:]
+    if recovery_start: (folder / 'Xray/profile.json').write_text('{invalid-startup-profile')
     profile = root / 'test profile.json'
     profile.write_text(json.dumps({'outbounds': [{'protocol': 'freedom', 'tag': 'test'}]}))
     env = dict(os.environ, PATH=str(Path(os.environ['SystemRoot']) / 'System32') + ';' + os.environ['SystemRoot'],
@@ -99,10 +102,15 @@ with tempfile.TemporaryDirectory(prefix='importer-restart-') as temp:
             first = subprocess.Popen([str(exe)], cwd=root, env=env, stdout=log, stderr=log)
             time.sleep(7)
             assert first.poll() is None
-            direct = '--direct' in sys.argv[2:]
-            ui(first.pid, profile, 'ImportRestart' if direct else 'ImportLater')
+            if recovery_start:
+                assert not matching_processes(folder / 'Xray/xray.exe')
+                assert 'Invalid Xray profile' in (folder / 'logs/tunnel-debug.jsonl').read_text(errors='replace')
+                print('PASS: failed startup remains usable for Settings and profile replacement', flush=True)
+            direct = '--direct' in sys.argv[2:] or recovery_start
+            automatic = '--automatic' in sys.argv[2:]
+            ui(first.pid, profile, 'ImportAutomatic' if automatic else ('ImportRestart' if direct else 'ImportLater'))
             assert json.loads((folder / 'Xray/profile.json').read_text())['outbounds'][0]['protocol'] == 'freedom'
-            if not direct:
+            if not direct and not automatic:
                 assert first.poll() is None
                 assert 'Integrated VLESS/Reality tunnel ready' not in (root / 'first-launch.log').read_text(errors='replace')
                 ui(first.pid, profile, 'RestartPending')
@@ -110,15 +118,38 @@ with tempfile.TemporaryDirectory(prefix='importer-restart-') as temp:
         time.sleep(7)
         pids = matching_processes(exe)
         assert len(pids) == 1 and pids[0] != first.pid, pids
-        verify_tunnel(folder / 'Xray/xray.exe')
+        first_core = verify_tunnel(folder / 'Xray/xray.exe')
+        if '--recovery' in sys.argv[2:]:
+            subprocess.run(['taskkill', '/PID', str(first_core), '/F'], check=True, capture_output=True)
+            deadline = time.monotonic() + 30
+            while True:
+                cores = matching_processes(folder / 'Xray/xray.exe')
+                if len(cores) == 1 and cores[0] != first_core:
+                    time.sleep(2)
+                    verify_tunnel(folder / 'Xray/xray.exe')
+                    break
+                if time.monotonic() > deadline: raise AssertionError('GUI did not automatically recover Xray')
+                time.sleep(.2)
+            assert matching_processes(exe) == pids
+            print('PASS: real GUI recovers a killed Xray core while keeping the same Moonlight PID', flush=True)
         print('PASS: automatic relaunch creates exactly one new process and activates the imported profile', flush=True)
         old = (folder / 'Xray/profile.json').read_bytes()
         profile.write_text('{invalid-json')
         ui(pids[0], profile, 'ImportInvalid')
         assert (folder / 'Xray/profile.json').read_bytes() == old
         print('PASS: invalid import preserves the active profile', flush=True)
+        # Close the validation error so Settings can be used for export.
+        if '--diagnostics' in sys.argv[2:]:
+            powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+            # Escape dismisses the Qt validation dialog without quitting the app.
+            command = '$ws=New-Object -ComObject WScript.Shell; $ws.AppActivate(' + str(pids[0]) + '); $ws.SendKeys("{ESC}")'
+            subprocess.run([str(powershell), '-NoProfile', '-Command', command], check=True, capture_output=True)
+            time.sleep(1)
+            ui(pids[0], profile, 'ExportReport')
+            assert list((folder / 'logs').glob('xray-diagnostic-*.txt'))
+            print('PASS: persistent diagnostic logs/report exist in the portable folder', flush=True)
         first_log = (root / 'first-launch.log').read_text(errors='replace')
-        for error in ('ReferenceError:', 'TypeError:', 'Binding loop detected for property "implicitWidth"'):
+        for error in ('ReferenceError:', 'TypeError:', 'Binding loop detected for property "implicitWidth"', 'different thread', 'Cannot move to target thread'):
             assert error not in first_log, first_log
         print('PASS: restart dialog has no QML reference/type errors or width-binding loops', flush=True)
     finally:

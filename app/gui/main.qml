@@ -13,6 +13,17 @@ import SdlGamepadKeyNavigation 1.0
 ApplicationWindow {
     property bool pollingActive: false
 
+    Connections {
+        target: StreamingPreferences
+        function onTunnelRecovered() {
+            if (window.visible && !window.pollingActive) {
+                ComputerManager.startPolling()
+                window.pollingActive = true
+                if (!window.active) inactivityTimer.restart()
+            }
+        }
+    }
+
     // Set by SettingsView to force the back operation to pop all
     // pages except the initial view. This is required when doing
     // a retranslate() because AppView breaks for some reason.

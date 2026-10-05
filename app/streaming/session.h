@@ -2,6 +2,7 @@
 
 #include <QSemaphore>
 #include <QQuickWindow>
+#include <atomic>
 
 #include <Limelight.h>
 #include <opus_multistream.h>
@@ -104,6 +105,9 @@ public:
     Q_INVOKABLE bool initialize(QQuickWindow* qtWindow);
     Q_INVOKABLE void start();
     Q_INVOKABLE void interrupt();
+    Q_INVOKABLE Session* createReconnectSession();
+    Q_PROPERTY(bool canReconnect READ canReconnect)
+    bool canReconnect() const;
     Q_PROPERTY(QStringList launchWarnings MEMBER m_LaunchWarnings NOTIFY launchWarningsChanged);
 
     static
@@ -144,6 +148,9 @@ signals:
     void launchWarningsChanged();
 
 private:
+    std::atomic<bool> m_ReconnectEligible{false};
+    std::atomic<bool> m_RemoteAppStarted{false};
+    bool m_ForceResume = false;
     void exec();
 
     bool startConnectionAsync();

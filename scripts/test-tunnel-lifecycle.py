@@ -34,13 +34,13 @@ def start(exe):
             if match: child = int(match.group(1))
             if "MANAGER_READY" in line:
                 assert child
-                return process, child
+                return process, child, lines
     except BaseException:
         process.kill(); process.wait()
         raise
 
 exe = sys.argv[1]
-parent, pid = start(exe)
+parent, pid, lines = start(exe)
 handle = kernel.OpenProcess(0x100000, False, pid)
 assert handle
 try:
@@ -50,11 +50,20 @@ try:
 finally:
     kernel.CloseHandle(handle)
 
-parent, pid = start(exe)
+parent, pid, lines = start(exe)
 try:
     subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=True, capture_output=True)
-    assert parent.wait(timeout=8) == 1, "Manager did not exit on core failure"
-    print("PASS: unexpected core exit stops application without direct fallback")
+    replacement = None
+    for _ in range(80):
+        assert parent.poll() is None, "Application exited instead of recovering Xray"
+        line = lines.get(timeout=20)
+        if line is None: raise RuntimeError('Application stdout ended during recovery')
+        match = re.search(r"core PID: (\d+)", line)
+        if match and int(match.group(1)) != pid:
+            replacement = int(match.group(1))
+            break
+    assert replacement, 'Xray was not restarted automatically'
+    print("PASS: unexpected core exit automatically recovers Xray without app relaunch or direct fallback")
 finally:
     if parent.poll() is None: parent.kill(); parent.wait()
 

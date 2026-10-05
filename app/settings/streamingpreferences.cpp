@@ -1,5 +1,9 @@
 #include "streamingpreferences.h"
 #include "backend/integratedtunnel.h"
+#include "backend/tunneldiagnostics.h"
+#include <QDesktopServices>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 #include "utils.h"
 
 #include <QSettings>
@@ -72,6 +76,11 @@ StreamingPreferences::StreamingPreferences(QQmlEngine *qmlEngine)
     : m_QmlEngine(qmlEngine)
 {
     reload();
+    if (auto tunnel = IntegratedTunnel::instance()) {
+        connect(tunnel, &IntegratedTunnel::stateChanged, this, &StreamingPreferences::tunnelDiagnosticsChanged);
+        connect(tunnel, &IntegratedTunnel::connectionRecovered, this, &StreamingPreferences::tunnelRecovered);
+        tunnel->setAutomaticRetryEnabled(m_TunnelAutoRetry);
+    }
 }
 
 StreamingPreferences* StreamingPreferences::get(QQmlEngine *qmlEngine)
@@ -186,6 +195,7 @@ void StreamingPreferences::reload()
     proxyEnabled = settings.value(SER_PROXY_ENABLED, false).toBool();
     integratedTunnelEnabled = settings.value("integratedTunnelEnabled",
         IntegratedTunnel::hasProfile()).toBool();
+    m_TunnelAutoRetry = settings.value("tunnelAutoRetryEnabled", true).toBool();
     proxyHost = settings.value(SER_PROXY_HOST).toString();
     proxyPort = settings.value(SER_PROXY_PORT, 1080).toInt();
     proxyUsername = settings.value(SER_PROXY_USERNAME).toString();
@@ -384,6 +394,7 @@ void StreamingPreferences::save()
     settings.setValue(SER_KEEPAWAKE, keepAwake);
     settings.setValue(SER_PROXY_ENABLED, proxyEnabled);
     settings.setValue("integratedTunnelEnabled", integratedTunnelEnabled);
+    settings.setValue("tunnelAutoRetryEnabled", m_TunnelAutoRetry);
     settings.setValue(SER_PROXY_HOST, proxyHost);
     settings.setValue(SER_PROXY_PORT, proxyPort);
     settings.setValue(SER_PROXY_USERNAME, proxyUsername);
@@ -405,6 +416,12 @@ QString StreamingPreferences::importTunnelProfile(const QUrl& source)
 {
     QString error;
     if (!IntegratedTunnel::importProfile(source, &error)) return error;
+    completeTunnelImport(source);
+    return QString();
+}
+
+void StreamingPreferences::completeTunnelImport(const QUrl& source)
+{
     QSettings settings;
     settings.setValue("tunnelProfileName", QFileInfo(source.toLocalFile()).fileName());
     integratedTunnelEnabled = true;
@@ -413,7 +430,84 @@ QString StreamingPreferences::importTunnelProfile(const QUrl& source)
     m_TunnelProfileChanged = true;
     emit tunnelProfileChanged();
     emit proxySettingsChanged();
-    return QString();
+}
+
+void StreamingPreferences::importTunnelProfileAsync(const QUrl& source)
+{
+    if (m_TunnelImportBusy) return;
+    m_TunnelImportBusy = true;
+    emit tunnelDiagnosticsChanged();
+    auto watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, source]() {
+        const auto error = watcher->result();
+        m_TunnelImportBusy = false;
+        if (error.isEmpty()) completeTunnelImport(source);
+        emit tunnelDiagnosticsChanged();
+        emit tunnelImportFinished(error);
+        watcher->deleteLater();
+    });
+    watcher->setFuture(QtConcurrent::run([source]() {
+        QString error;
+        IntegratedTunnel::importProfile(source, &error);
+        return error;
+    }));
+}
+
+QString StreamingPreferences::tunnelStatus() const {
+    return m_TunnelImportBusy ? tr("Validating JSON profile in the background...") : IntegratedTunnel::status();
+}
+QString StreamingPreferences::tunnelLastError() const { return IntegratedTunnel::lastError(); }
+bool StreamingPreferences::tunnelReady() const {
+    const auto tunnel = IntegratedTunnel::instance();
+    return IntegratedTunnel::active() && tunnel && !tunnel->starting();
+}
+QString StreamingPreferences::tunnelLogDirectory() const { return TunnelDiagnostics::directory(); }
+
+void StreamingPreferences::runTunnelDiagnostics()
+{
+    if (m_TunnelDiagnosticsBusy || m_TunnelImportBusy) return;
+    m_TunnelDiagnosticsBusy = true;
+    emit tunnelDiagnosticsChanged();
+    auto watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher]() {
+        m_TunnelDiagnosticsBusy = false;
+        emit tunnelDiagnosticsChanged();
+        emit tunnelDiagnosticsFinished(watcher->result());
+        watcher->deleteLater();
+    });
+    watcher->setFuture(QtConcurrent::run([] { return IntegratedTunnel::connectionDiagnostics(); }));
+}
+
+QString StreamingPreferences::exportTunnelDiagnostics()
+{
+    return TunnelDiagnostics::exportReport(tunnelStatus(), tunnelLastError());
+}
+
+void StreamingPreferences::openTunnelLogs()
+{
+    const auto folder = tunnelLogDirectory();
+    if (!folder.isEmpty()) QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+}
+
+QString StreamingPreferences::retryTunnel()
+{
+    if (m_TunnelImportBusy) return tr("Wait for profile validation to finish.");
+    if (!IntegratedTunnel::hasProfile()) return tr("Import a valid JSON profile first.");
+    if (m_TunnelProfileChanged) return restartApplication();
+    if (auto tunnel = IntegratedTunnel::instance()) {
+        TunnelDiagnostics::write("startup.retry_requested", "User requested a fresh Xray connection without relaunching the application");
+        tunnel->retryNow();
+        return {};
+    }
+    return tr("The tunnel manager is not available.");
+}
+
+void StreamingPreferences::setTunnelAutoRetryEnabled(bool enabled)
+{
+    m_TunnelAutoRetry = enabled;
+    if (auto tunnel = IntegratedTunnel::instance()) tunnel->setAutomaticRetryEnabled(enabled);
+    QSettings().setValue("tunnelAutoRetryEnabled", enabled);
+    emit tunnelDiagnosticsChanged();
 }
 
 bool StreamingPreferences::tunnelRestartNeeded() const

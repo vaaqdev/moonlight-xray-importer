@@ -1,4 +1,5 @@
 #include "session.h"
+#include "backend/tunneldiagnostics.h"
 #include "backend/integratedtunnel.h"
 #include "settings/streamingpreferences.h"
 #include "streaming/streamutils.h"
@@ -79,7 +80,9 @@ void Session::clStageFailed(int stage, int errorCode)
 {
     // Perform the port test now, while we're on the async connection thread and not blocking the UI.
     unsigned int portFlags = LiGetPortFlagsFromStage(stage);
-    s_ActiveSession->m_PortTestResults = LiTestClientConnectivity(CONN_TEST_SERVER, 443, portFlags);
+    s_ActiveSession->m_PortTestResults = IntegratedTunnel::required() ? -1 : LiTestClientConnectivity(CONN_TEST_SERVER, 443, portFlags);
+    if (IntegratedTunnel::required() && stage >= STAGE_RTSP_HANDSHAKE) s_ActiveSession->m_ReconnectEligible = true;
+    TunnelDiagnostics::write("stream.stage_failed", QString("stage=%1 error=%2").arg(stage).arg(errorCode));
 
     char failingPorts[128];
     LiStringifyPortFlags(portFlags, ", ", failingPorts, sizeof(failingPorts));
@@ -89,7 +92,12 @@ void Session::clStageFailed(int stage, int errorCode)
 void Session::clConnectionTerminated(int errorCode)
 {
     unsigned int portFlags = LiGetPortFlagsFromTerminationErrorCode(errorCode);
-    s_ActiveSession->m_PortTestResults = LiTestClientConnectivity(CONN_TEST_SERVER, 443, portFlags);
+    s_ActiveSession->m_PortTestResults = IntegratedTunnel::required() ? -1 : LiTestClientConnectivity(CONN_TEST_SERVER, 443, portFlags);
+    if (IntegratedTunnel::required() && errorCode != ML_ERROR_GRACEFUL_TERMINATION &&
+        errorCode != ML_ERROR_PROTECTED_CONTENT && errorCode != ML_ERROR_UNEXPECTED_EARLY_TERMINATION &&
+        errorCode != ML_ERROR_FRAME_CONVERSION) s_ActiveSession->m_ReconnectEligible = true;
+    TunnelDiagnostics::write("stream.terminated", QString("error=%1 reconnectEligible=%2")
+        .arg(errorCode).arg(s_ActiveSession->m_ReconnectEligible.load()));
 
     // Display the termination dialog if this was not intended
     switch (errorCode) {
@@ -595,6 +603,19 @@ Session::~Session()
     // Use Session::exec() or DeferredSessionCleanupTask instead.
 
     SDL_DestroyMutex(m_DecoderLock);
+}
+
+bool Session::canReconnect() const
+{
+    return IntegratedTunnel::required() && m_Preferences->tunnelAutoRetryEnabled() && m_ReconnectEligible.load();
+}
+
+Session* Session::createReconnectSession()
+{
+    auto replacement = new Session(m_Computer, m_App, m_Preferences);
+    replacement->m_ForceResume = m_ForceResume || m_RemoteAppStarted.load();
+    TunnelDiagnostics::write("stream.retry", "Created a fresh session after cleanup; app relaunch is not required");
+    return replacement;
 }
 
 bool Session::initialize(QQuickWindow* qtWindow)
@@ -1581,6 +1602,7 @@ public:
 bool Session::startConnectionAsync()
 {
     if ((IntegratedTunnel::required() || m_Preferences->integratedTunnelEnabled) && !IntegratedTunnel::active()) {
+        m_ReconnectEligible = true;
         emit displayLaunchError(tr("Import a valid Xray JSON profile in Settings > Network Settings and restart Moonlight before streaming."));
         return false;
     }
@@ -1616,18 +1638,20 @@ bool Session::startConnectionAsync()
 
     try {
         NvHTTP http(m_Computer);
-        http.startApp(m_Computer->currentGameId != 0 ? "resume" : "launch",
+        http.startApp(m_ForceResume || m_Computer->currentGameId != 0 ? "resume" : "launch",
                       m_Computer->isNvidiaServerSoftware,
                       m_App.id, &m_StreamConfig,
                       enableGameOptimizations,
                       m_Preferences->playAudioOnHost,
                       m_InputHandler->getAttachedGamepadMask(),
                       !m_Preferences->multiController,
-                      rtspSessionUrl);
+                       rtspSessionUrl);
+        m_RemoteAppStarted = true;
     } catch (const GfeHttpResponseException& e) {
         emit displayLaunchError(tr("Host returned error: %1").arg(e.toQString()));
         return false;
     } catch (const QtNetworkReplyException& e) {
+        if (e.getError() != QNetworkReply::SslHandshakeFailedError && e.getError() != QNetworkReply::AuthenticationRequiredError) m_ReconnectEligible = true;
         emit displayLaunchError(e.toQString());
         return false;
     }

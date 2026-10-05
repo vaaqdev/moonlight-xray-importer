@@ -14,6 +14,59 @@ Flickable {
     objectName: qsTr("Settings")
 
     signal languageChanged()
+    property bool autoRelaunchAfterImport: false
+    property int relaunchSeconds: 3
+
+    function relaunchTunnel() {
+        relaunchTimer.stop()
+        var error = StreamingPreferences.restartApplication()
+        if (error) {
+            tunnelRestartDialog.close()
+            tunnelImportMessage.title = qsTr("Restart failed")
+            tunnelImportMessage.text = error
+            tunnelImportMessage.open()
+        }
+    }
+
+    Connections {
+        target: StreamingPreferences
+        function onTunnelImportFinished(error) {
+            tunnelImportProgress.close()
+            if (error) {
+                tunnelImportMessage.title = qsTr("Profile import failed")
+                tunnelImportMessage.text = error
+                tunnelImportMessage.open()
+            } else {
+                relaunchSeconds = 3
+                Qt.callLater(function() { tunnelRestartDialog.open() })
+            }
+        }
+        function onTunnelDiagnosticsFinished(result) {
+            tunnelImportMessage.title = qsTr("Connection diagnostics")
+            tunnelImportMessage.text = result
+            tunnelImportMessage.open()
+        }
+    }
+
+    NavigableMessageDialog {
+        id: tunnelImportProgress
+        parent: Overlay.overlay
+        title: qsTr("Validating profile...")
+        text: qsTr("Xray is validating your JSON in the background. On a slow computer this can take up to 40 seconds.")
+        showSpinner: true
+        standardButtons: Dialog.NoButton
+        closePolicy: Popup.NoAutoClose
+    }
+
+    Timer {
+        id: relaunchTimer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            relaunchSeconds--
+            if (relaunchSeconds <= 0) relaunchTunnel()
+        }
+    }
 
     NativeDialogs.FileDialog {
         id: tunnelProfileDialog
@@ -21,16 +74,9 @@ Flickable {
         fileMode: NativeDialogs.FileDialog.OpenFile
         nameFilters: [qsTr("JSON profiles (*.json)"), qsTr("All files (*)")]
         onAccepted: {
-            var error = StreamingPreferences.importTunnelProfile(selectedFile)
-            if (error) {
-                tunnelImportMessage.title = qsTr("Profile import failed")
-                tunnelImportMessage.text = error
-                tunnelImportMessage.open()
-            } else {
-                // The native file chooser has just closed. Queue opening our
-                // overlay dialog so it is visible on the first import too.
-                Qt.callLater(function() { tunnelRestartDialog.open() })
-            }
+            autoRelaunchAfterImport = !StreamingPreferences.tunnelProfilePresent
+            tunnelImportProgress.open()
+            StreamingPreferences.importTunnelProfileAsync(selectedFile)
         }
     }
 
@@ -47,9 +93,13 @@ Flickable {
         title: qsTr("Profile imported - restart required")
         width: Math.min(460, Overlay.overlay.width - 40)
         closePolicy: Popup.NoAutoClose
+        onOpened: if (autoRelaunchAfterImport) relaunchTimer.start()
+        onClosed: relaunchTimer.stop()
 
         contentItem: Label {
-            text: qsTr("Your JSON profile was validated and saved. You must restart Moonlight to activate it. Restart now?")
+            text: autoRelaunchAfterImport
+                  ? qsTr("Profile saved. Relaunching automatically in %1 seconds to activate Xray...").arg(relaunchSeconds)
+                  : qsTr("Your JSON profile was validated and saved. You must restart Moonlight to activate it. Restart now?")
             wrapMode: Text.Wrap
         }
 
@@ -58,20 +108,15 @@ Flickable {
                 objectName: "restartMoonlightNowButton"
                 text: qsTr("Restart now")
                 DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                onClicked: {
-                    var error = StreamingPreferences.restartApplication()
-                    if (error) {
-                        tunnelRestartDialog.close()
-                        tunnelImportMessage.title = qsTr("Restart failed")
-                        tunnelImportMessage.text = error
-                        tunnelImportMessage.open()
-                    }
-                }
+                onClicked: relaunchTunnel()
             }
             Button {
                 text: qsTr("Later")
                 DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
-                onClicked: tunnelRestartDialog.close()
+                onClicked: {
+                    autoRelaunchAfterImport = false
+                    tunnelRestartDialog.close()
+                }
             }
         }
     }
@@ -1103,6 +1148,7 @@ Flickable {
                     objectName: "importTunnelProfileButton"
                     width: parent.width
                     text: qsTr("Import JSON profile...")
+                    enabled: !StreamingPreferences.tunnelImportBusy
                     onClicked: tunnelProfileDialog.open()
                 }
 
@@ -1119,7 +1165,71 @@ Flickable {
                     width: parent.width
                     visible: StreamingPreferences.tunnelRestartNeeded
                     text: qsTr("Restart Moonlight")
-                    onClicked: tunnelRestartDialog.open()
+                    onClicked: {
+                        autoRelaunchAfterImport = false
+                        tunnelRestartDialog.open()
+                    }
+                }
+
+                Label {
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    text: qsTr("Tunnel status: %1").arg(StreamingPreferences.tunnelStatus)
+                }
+                Label {
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    visible: StreamingPreferences.tunnelLastError.length > 0
+                    text: StreamingPreferences.tunnelLastError
+                    color: "orange"
+                }
+                Button {
+                    width: parent.width
+                    text: qsTr("Retry Xray now")
+                    enabled: StreamingPreferences.tunnelProfilePresent && !StreamingPreferences.tunnelImportBusy
+                    onClicked: {
+                        var error = StreamingPreferences.retryTunnel()
+                        if (error) {
+                            tunnelImportMessage.title = qsTr("Retry failed")
+                            tunnelImportMessage.text = error
+                            tunnelImportMessage.open()
+                        }
+                    }
+                }
+                Button {
+                    width: parent.width
+                    text: StreamingPreferences.tunnelDiagnosticsBusy ? qsTr("Checking connection...") : qsTr("Run connection diagnostics")
+                    enabled: StreamingPreferences.tunnelProfilePresent && !StreamingPreferences.tunnelDiagnosticsBusy && !StreamingPreferences.tunnelImportBusy
+                    onClicked: StreamingPreferences.runTunnelDiagnostics()
+                }
+                Button {
+                    width: parent.width
+                    text: qsTr("Open diagnostic logs")
+                    onClicked: StreamingPreferences.openTunnelLogs()
+                }
+                Button {
+                    width: parent.width
+                    text: qsTr("Export diagnostic report")
+                    onClicked: {
+                        var path = StreamingPreferences.exportTunnelDiagnostics()
+                        tunnelImportMessage.title = qsTr("Diagnostic report")
+                        tunnelImportMessage.text = path
+                            ? qsTr("Report saved to:\n%1\n\nThe JSON profile and credentials are not included.").arg(path)
+                            : qsTr("Cannot write the report. Check the folder permissions.")
+                        tunnelImportMessage.open()
+                    }
+                }
+                Label {
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    text: qsTr("Diagnostic logs: %1").arg(StreamingPreferences.tunnelLogDirectory)
+                    font.pointSize: 10
+                }
+                CheckBox {
+                    width: parent.width
+                    text: qsTr("Automatically reconnect after Wi-Fi or network changes")
+                    checked: StreamingPreferences.tunnelAutoRetryEnabled
+                    onToggled: StreamingPreferences.tunnelAutoRetryEnabled = checked
                 }
 
                 Label {

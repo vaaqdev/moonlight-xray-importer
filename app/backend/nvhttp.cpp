@@ -1,5 +1,6 @@
 #include "nvcomputer.h"
 #include "integratedtunnel.h"
+#include "tunneldiagnostics.h"
 #include "settings/streamingpreferences.h"
 #include <Limelight.h>
 
@@ -8,6 +9,7 @@
 #include <QtNetwork/QNetworkReply>
 #include <QEventLoop>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QXmlStreamReader>
 #include <QSslKey>
 #include <QImageReader>
@@ -530,6 +532,12 @@ NvHTTP::openConnection(QUrl baseUrl,
 #endif
 
     auto sslErrorsConnection = connect(m_Nam, &QNetworkAccessManager::sslErrors, this, &NvHTTP::handleSslErrors);
+    if (IntegratedTunnel::required() || StreamingPreferences::get()->integratedTunnelEnabled) {
+        m_Nam->setProxy(IntegratedTunnel::proxy());
+        if (timeoutMs && timeoutMs < 8000) timeoutMs = 8000;
+    }
+    QElapsedTimer elapsed;
+    elapsed.start();
     QNetworkReply* reply = m_Nam->get(request);
 
     // Run the request with a timeout if requested
@@ -562,6 +570,10 @@ NvHTTP::openConnection(QUrl baseUrl,
     // Handle error
     if (reply->error() != QNetworkReply::NoError)
     {
+        if (IntegratedTunnel::required()) {
+            TunnelDiagnostics::write("sunshine.http.failed", QString("command=%1 QtError=%2 elapsedMs=%3: %4")
+                .arg(command).arg(int(reply->error())).arg(elapsed.elapsed()).arg(reply->errorString()));
+        }
         if (logLevel >= NvLogLevel::NVLL_ERROR) {
             qWarning() << command << "request failed with error:" << reply->error();
         }

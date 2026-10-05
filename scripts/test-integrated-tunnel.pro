@@ -4,4 +4,6 @@ CONFIG -= app_bundle
 TARGET = tunnel-manager-tests
 INCLUDEPATH += ../app ../moonlight-common-c/moonlight-common-c/src
 SOURCES += test-integrated-tunnel.cpp ../app/backend/integratedtunnel.cpp
+SOURCES += ../app/backend/tunneldiagnostics.cpp
 HEADERS += ../app/backend/integratedtunnel.h
+HEADERS += ../app/backend/tunneldiagnostics.h
