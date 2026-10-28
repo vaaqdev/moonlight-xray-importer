@@ -5,7 +5,7 @@ No requiere instalador ni copiar la app a Aplicaciones. Importa tu perfil
 JSON desde los ajustes y reinicia cuando te lo pida.
 
 Build legacy: Qt 6.3.2, librerias nativas recompiladas para 10.15,
-Xray v25.1.30 compilado con Go 1.23.12. No usa Vulkan/libplacebo;
+Xray v24.12.31 compilado con Go 1.22.12. No usa Vulkan/libplacebo;
 conserva VideoToolbox/Metal para video. Xray y Qt son versiones antiguas:
 no contienen todas las correcciones ni funciones de las versiones actuales.
 Los perfiles que requieran funciones recientes de Xray no son compatibles.

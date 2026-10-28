@@ -69,6 +69,13 @@ popd
 python3 "$root/scripts/relocate-catalina-libs.py" "$prefix/lib"
 fi
 if [ "${1:-}" = "--deps-only" ]; then exit 0; fi
+# Fail early if the legacy core cannot be built with Catalina's last Go toolchain.
+# Go 1.23 and newer require macOS 11, regardless of C deployment flags.
+git clone --depth 1 --branch v24.12.31 https://github.com/XTLS/Xray-core.git "$work/xray-source"
+pushd "$work/xray-source"
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 GOAMD64=v1 \
+  go build -trimpath -ldflags='-s -w -buildid=' -o "$work/xray-x86_64" ./main
+popd
 mkdir -p "$work/app-build"
 pushd "$work/app-build"
 qmake "$root/moonlight-qt.pro" CONFIG+=catalina QMAKE_APPLE_DEVICE_ARCHS=x86_64 QMAKE_MACOSX_DEPLOYMENT_TARGET=10.15
@@ -79,17 +86,13 @@ app="$work/app-build/app/Moonlight.app"
 macdeployqt "$app" -qmldir="$root/app/gui" -appstore-compliant
 rm -rf "$app/Contents/PlugIns/sqldrivers"
 
-# Go 1.23 is the last Go release supporting Catalina. Newer official Xray
+# Go 1.22 is the last Go release supporting Catalina. Newer official Xray
 # downloads require a newer macOS even if their Mach-O minimum is patched.
-git clone --depth 1 --branch v25.1.30 https://github.com/XTLS/Xray-core.git "$work/xray-source"
 xray="$app/Contents/Resources/Xray"
 mkdir -p "$xray"
-pushd "$work/xray-source"
-CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 GOAMD64=v1 \
-  go build -trimpath -ldflags='-s -w -buildid=' -o "$xray/xray-x86_64" ./main
-popd
+cp "$work/xray-x86_64" "$xray/xray-x86_64"
 cp "$work/xray-source/LICENSE" "$xray/LICENSE"
-curl -fL --retry 3 https://github.com/XTLS/Xray-core/releases/download/v25.1.30/Xray-macos-64.zip -o "$work/xray-data.zip"
+curl -fL --retry 3 https://github.com/XTLS/Xray-core/releases/download/v24.12.31/Xray-macos-64.zip -o "$work/xray-data.zip"
 unzip -j "$work/xray-data.zip" geoip.dat geosite.dat -d "$xray"
 cc $CFLAGS -O2 -Wall -Werror "$root/scripts/xray-launcher.c" -o "$xray/xray-launcher"
 cp "$root/LICENSE" "$app/Contents/Resources/LICENSE-Moonlight.txt"
