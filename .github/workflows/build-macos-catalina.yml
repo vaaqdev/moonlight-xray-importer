@@ -33,7 +33,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: libs/mac
-          key: catalina-intel-native-v1-${{ hashFiles('scripts/build-macos-catalina.sh') }}
+          # Bump when native dependency sources or build flags change.
+          key: catalina-intel-native-v1-250e121d2bd0ecbd622883140774c23387a3e8e6d9a412aa63201e6be51bb2a1
       - name: Build Catalina libraries
         if: steps.deps.outputs.cache-hit != 'true'
         run: bash scripts/build-macos-catalina.sh --deps-only
