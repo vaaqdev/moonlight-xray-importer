@@ -162,8 +162,13 @@ win32:!winrt {
 }
 macx {
     !disable-prebuilts {
-        LIBS += -lssl.3 -lcrypto.3 -lavcodec.63 -lavutil.61 -lswscale.10 -lopus.0 -lSDL2 -lSDL2_ttf -lplacebo
-        CONFIG += discord-rpc libplacebo
+        catalina {
+            # Dedicated 10.15 build: source-built native libraries, no Vulkan.
+            LIBS += -lssl -lcrypto -lavcodec -lavutil -lswscale -lopus -lSDL2 -lSDL2_ttf
+        } else {
+            LIBS += -lssl.3 -lcrypto.3 -lavcodec.63 -lavutil.61 -lswscale.10 -lopus.0 -lSDL2 -lSDL2_ttf -lplacebo
+            CONFIG += discord-rpc libplacebo
+        }
     }
 
     LIBS += -lobjc -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreGraphics -framework CoreMedia -framework AppKit -framework Metal -framework QuartzCore

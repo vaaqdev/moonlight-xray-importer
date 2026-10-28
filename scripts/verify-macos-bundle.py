@@ -11,19 +11,24 @@ import tempfile
 import time
 
 app = Path(sys.argv[1]).resolve()
+catalina = '--catalina' in sys.argv[2:]
 main = app / 'Contents/MacOS/Moonlight'
 resources = app / 'Contents/Resources/Xray'
 launcher = resources / 'xray-launcher'
 for binary in (main, launcher):
     architectures = subprocess.check_output(['lipo', '-archs', str(binary)], text=True)
-    assert 'arm64' in architectures and 'x86_64' in architectures, architectures
+    assert 'x86_64' in architectures and (catalina or 'arm64' in architectures), architectures
 def minimum_os(binary):
     output = subprocess.check_output(['xcrun', 'vtool', '-show-build', str(binary)], text=True)
-    return [tuple(map(int, version.split('.'))) for version in re.findall(r'minos\s+(\S+)', output)]
+    versions = re.findall(r'minos\s+(\S+)', output)
+    if not versions:
+        output = subprocess.check_output(['otool', '-l', str(binary)], text=True)
+        versions = re.findall(r'LC_VERSION_MIN_MACOSX\s+cmdsize\s+\d+\s+version\s+(\S+)', output)
+    return [tuple(map(int, version.split('.'))) for version in versions]
 main_min, launcher_min = minimum_os(main), minimum_os(launcher)
 assert main_min and launcher_min and max(launcher_min) <= max(main_min), (main_min, launcher_min)
 print('PASS: launcher minimum macOS matches the app:', main_min)
-for filename, architecture in (('xray', 'arm64'), ('xray-x86_64', 'x86_64')):
+for filename, architecture in ([('xray-x86_64', 'x86_64')] if catalina else [('xray', 'arm64'), ('xray-x86_64', 'x86_64')]):
     assert architecture in subprocess.check_output(['lipo', '-archs', str(resources / filename)], text=True)
 assert not list(app.rglob('profile.json'))
 subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
@@ -33,7 +38,7 @@ for variable in ('QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QML2_IMPORT_P
     environment.pop(variable, None)
 version = subprocess.run([str(main), '--version'], capture_output=True, text=True, timeout=30, env=environment)
 assert version.returncode == 0 and '6.2.0' in version.stdout + version.stderr, version
-print('PASS: signed universal app launches from its deployed bundle; no bundled profile')
+print('PASS: signed app launches from its deployed bundle; no bundled profile')
 mach_magic = {b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf'}
 binaries = []
 for path in app.rglob('*'):
@@ -41,6 +46,11 @@ for path in app.rglob('*'):
     with path.open('rb') as stream:
         if stream.read(4) in mach_magic: binaries.append(path)
 for binary in binaries:
+    if catalina:
+        architectures = subprocess.check_output(['lipo', '-archs', str(binary)], text=True).strip()
+        assert architectures == 'x86_64', (binary, architectures)
+        versions = minimum_os(binary)
+        assert versions and all((version + (0, 0))[:3] <= (10, 15, 0) for version in versions), (binary, versions)
     output = subprocess.check_output(['otool', '-L', str(binary)], text=True)
     for line in output.splitlines():
         if not line.startswith('\t'): continue

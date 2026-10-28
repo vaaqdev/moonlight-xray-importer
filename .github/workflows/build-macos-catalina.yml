@@ -1,0 +1,38 @@
+name: Build macOS Catalina Portable
+on:
+  push:
+    branches: [build/macos-catalina]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: macos-catalina-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '10.15'
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.3.2
+          arch: clang_64
+          cache: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.12
+          cache: false
+      - name: Install build tools
+        run: brew install nasm meson ninja pkg-config
+      - name: Build Catalina libraries and portable app
+        run: bash scripts/build-macos-catalina.sh
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Moonlight-6.2.0-macOS-10.15-Catalina-Portable-Intel
+          path: build/catalina-portable/*
+          if-no-files-found: error
+          compression-level: 0
