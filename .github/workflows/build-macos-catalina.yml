@@ -28,8 +28,23 @@ jobs:
           cache: false
       - name: Install build tools
         run: brew install nasm meson ninja pkg-config
-      - name: Build Catalina libraries and portable app
-        run: bash scripts/build-macos-catalina.sh
+      - name: Restore Catalina dependencies
+        id: deps
+        uses: actions/cache/restore@v4
+        with:
+          path: libs/mac
+          key: catalina-intel-native-v1-${{ hashFiles('scripts/build-macos-catalina.sh') }}
+      - name: Build Catalina libraries
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: bash scripts/build-macos-catalina.sh --deps-only
+      - name: Save Catalina dependencies before compiling app
+        if: steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: libs/mac
+          key: ${{ steps.deps.outputs.cache-primary-key }}
+      - name: Build and verify Catalina portable app
+        run: bash scripts/build-macos-catalina.sh --app-only
       - uses: actions/upload-artifact@v6
         with:
           name: Moonlight-6.2.0-macOS-10.15-Catalina-Portable-Intel

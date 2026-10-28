@@ -16,6 +16,7 @@ jobs="$(sysctl -n hw.logicalcpu)"
 mkdir -p "$work" "$prefix"
 test "$(uname -m)" = x86_64
 
+if [ "${1:-}" != "--app-only" ]; then
 # v19 pins the source revisions, NOT the incompatible prebuilt binaries.
 git clone --depth 1 --branch v19 https://github.com/moonlight-stream/moonlight-qt-deps.git "$work/deps"
 git -C "$work/deps" submodule update --init --recursive --depth 1 openssl opus SDL_ttf FFmpeg dav1d
@@ -66,6 +67,8 @@ popd
 
 # Normalize every native install name, including transitive dependencies.
 python3 "$root/scripts/relocate-catalina-libs.py" "$prefix/lib"
+fi
+if [ "${1:-}" = "--deps-only" ]; then exit 0; fi
 mkdir -p "$work/app-build"
 pushd "$work/app-build"
 qmake "$root/moonlight-qt.pro" CONFIG+=catalina QMAKE_APPLE_DEVICE_ARCHS=x86_64 QMAKE_MACOSX_DEPLOYMENT_TARGET=10.15
